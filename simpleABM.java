@@ -6,11 +6,11 @@ import HAL.Rand;
 import HAL.Tools.FileIO;
 import java.io.File;
 import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.*;;
 import static boneRemodeling_2022May17.BoneGrid_2022May17.*;
 import static HAL.Util.*;
-
+import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                     GRID CLASS                                                     //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -21,66 +21,29 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
     //GRID FIELDS//
     ///////////////
 
-    //3/4/23 testing pob differentiation at 0.004 for 25 sims
-    //4.19/24 need to check the increase in aOC resorb. Now it is 5, running without myeloma and setting it to 0.1
-    //4/23/24 testing new aOC aging effect, increased aOC lifespan - this is done 4/24/24
-    //4/24/24 running baes case myeloma seeded at 50 years
-    // myeloma seeded at year 10 still on the cluster
-    // 4/25/24 runing base case with OC increased lifespan, no myeloma
-    // running MSC protection on MM with osteolcast lifespan increased
-    // 4/28/24 reran baseline aged 85 years, no myeloma, decrease pOB proliferation, increase aOC lifespan
-    // 4/28/24 rerunning msc benefit, aged 85 years, no myeloma, decrease pOB proliferation, increase aOC lifespan
-    // 4/29/24 running myeloma seeded at year 30 in the model, no msc benefit, no oc benefit, only decreased pOB proliferation
-    // 4/29/24 added T-cells
-    // 4/30/24 Need to run myeloma with msc benefit at model timepoint 50, no OC benefit, decreased pOB proliferation, running in myeloma 3
-    // 4/30/24 need to run same as above but with no msc benefit, running in myeloma2 folder
-    // 5/1/24 added = to the myeloma seed time value to test tcells
-    // 5/7/24 testing Tcells for 25 iterations for 1 year, running baseline for 1 year, both with myeloma
-    // baseline with myeloma is in myeloma2
-    // 5/7/24 need to run the condition where there is an msc benefit to myeloma over again, in myeloma3
-    // 5/8/24 rerunning base condition with msc benefit to myeloma over again in myeloma3, seed time was wrong on the last run
-    // 5/8/24 rerunning Tcells with different pd-1 value
-    // 5/8/24 Need to rerun the 1 year myeloma over again, unintended 0 value in msc benefit caused year 0 to have extrmeely low level of proliferation
-    // 5/13/24 changed to Tcells to move 30um per timestep, running experiments now
-    // 5/13/24 added two null checks, use comand f to find them if they need to be changed later
-    // 5/17/24 running aged myeloma with Tcells for 85 years, more so to test if the cluster is working
-    // 5/17/24 running the above test in myeloma2 cluster folder
-    // 5/17/24 modified Tcell code to exit outer loo if a myeloma cell is encountered
-    // 5/20/24 running myeloma for 4 years with and without Tcells in Tcells and myeloma2 respectively
-    // 10/24/24 ran antigen loss rate of 10^-3
-    //10/24/24 ran antigen loss rate of 10^-5
-    //10/24/24 ran antigen loss rate of 10^-7
-    //10/24/24 need to rerun the baseline condition with no Tcells and antigen loss rate of 0
-    //1/22/25 added a feature to prevent infinite loops in CD8 T-cell placement
-    //1/23/25 Changed the number of cancer cells CD8 T-cells can kill before exhuastion to ~100
-
-
 
     //Variables to switch on/off treatment/other things
-    public static boolean TGFB_INHIBITOR = false;
-    public static boolean RANKL_INHIBITOR = false;
-    public static boolean BISPHOSPHONATE = false;
     public static boolean BORTEZOMIB = false;
     public static boolean MYELOMA = true;
     public static boolean TCELL = true;
+    public static boolean TCE = true;
     public static boolean EMDR = false;
     public static boolean TREATMENT_ON = false; //this is to control treatment on/off timer in MAIN
 
     //CLUSTER
     public static boolean PARAM_SWEEP = false; //use when importing parameters to loop through
+    public static boolean runPar = false;
     public static boolean HEADLESS = false; //use true with cluster
     public static boolean LOCAL = true; // use false with cluster
-    public static double numSteps = 2.0*365.0*24.0*60.0; // years the model will run
-    public static int numSims = 25; //Number of Simulations
+    public static double numSteps = 2*365.0*24.0*60.0; // years the model will run
+    public static int numSims = 1; //Number of Simulations
     public final static int BONE = RGB256(255,255,250), MSC = RGB256(135,206,250),
             pOB = RGB256(100,149,237), aOB = BLUE, pOC = RGB256(230,100,130),
             aOC = RED, LINING = RGB256(64,106,151), MM = RGB256(0,128,0),
             activeTcell = RGB256(17, 150, 150),
             EXHT_CELL=RGB256(200, 50, 250),
             supressorTcell =RGB256(255, 165, 0),
-            bloodVessel=RGB256(138, 3, 3),
-            ALMM=RGB(255, 105, 180);
-
+            bloodVessel=RGB256(138, 3, 3);
 
     //SETUP
     static double MinToHour = 60.0;
@@ -125,18 +88,23 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
     public Rand rn;
     public PDEGrid2D CXCL9;
     public PDEGrid2D IFNG;
-    public int MM_Division_List_Size = 10;//10 timesteps = 60 min = 1 hr;
 
     public int[] tmoveHood = MooreHood(true);
     public ArrayList<Integer> InitBoneList = new ArrayList<>();
     public ArrayList<BoneCell_2022May17> AllBoneList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
     public ArrayList<BoneCell_2022May17> LiningList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
-    public ArrayList<BoneCell_2022May17> tempEventList = new ArrayList<>(); //This list temporarily stores the nearest bone-lining cell neighbors
 
-    boolean [][] exposedBone = new boolean[xDim][yDim];
+    List<Object> cellSIMindex = new ArrayList<>();
 
     //public int eOpt;
     FileIO out;
+
+    FileIO clones;
+
+    FileIO bones;
+
+    FileIO locations;
+
     FileIO InitialBone;
 //    FileIO params;
 
@@ -157,8 +125,6 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
         //Create 2D PDE Grid for RANKL and boundary condition
         CXCL9 = new PDEGrid2D(xDim, yDim,true,true);
         IFNG = new PDEGrid2D(xDim, yDim,true,true);
-
-
         InitialBone=new FileIO(Bone_FileName, "r");
 
     }
@@ -170,12 +136,623 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
     //2. RemodelingEvent   //
     //3. InitRANKL         //
     //4. ModelStep         //
-    //5. CollectLINING     //
-    //6. Draw              //
-    //7. DrawRANKL         //
-    //8. RecordRANKL       //
-    //9. RecordOut         //
+    //5. RecordOut         //
     /////////////////////////
+
+    // taking a snapshot of the cell
+    public static class CellSnapshot {
+        public final int type;
+        public final boolean bcmaLoss;
+        public int simID;
+
+        public CellSnapshot(int type,
+                            boolean bcmaLoss, int simID) {
+            this.type = type;
+            this.bcmaLoss = bcmaLoss;
+            this.simID = simID;
+        }
+    }
+
+    // --- Add snapshot export helper in BoneGrid_2022May17 (instance method) ---
+    public CellSnapshot exportSnapshot(BoneCell_2022May17 c) {
+        // Capture the fields you care about. Extend as needed.
+        return new CellSnapshot(
+                c.type,
+                c.bcmaLoss,
+                c.simulationID
+        );
+    }
+
+    // --- Add snapshot import helper in BoneGrid_2022May17 (instance method) ---
+    public void importSnapshotToGrid(CellSnapshot s) {
+        // Find a random empty location to place the incoming cell (or use other placement logic)
+        int tries = 0;
+        while (tries < 50) { // try up to 50 random spots
+            int x = rn.Int(xDim);
+            int y = rn.Int(yDim);
+            if (PopAt(x, y) == 0) {
+                BoneCell_2022May17 newCell = NewAgentSQ(x, y);
+                newCell.type = s.type;
+                newCell.bcmaLoss = s.bcmaLoss;
+                newCell.simulationID = s.simID;
+                // copy other fields as needed
+                return;
+            }
+            tries++;
+        }
+        // If not placed after random tries, place it at first empty by scanning
+        for (int xi = 0; xi < xDim; xi++) {
+            for (int yi = 0; yi < yDim; yi++) {
+                if (PopAt(xi, yi) == 0) {
+                    BoneCell_2022May17 newCell = NewAgentSQ(xi, yi);
+                    newCell.type = s.type;
+                    newCell.bcmaLoss = s.bcmaLoss;
+                    newCell.simulationID = s.simID;
+                    return;
+                }
+            }
+        }
+    }
+
+    // global, accessible from all threads
+    public static ConcurrentLinkedQueue<CellSnapshot> myelomaTransferQueue = new ConcurrentLinkedQueue<>();
+
+
+    public static void runSimulation(final int simID, final int prow, final String baseFolder, final ArrayList<String> param_list, int[] condition) {
+
+        // local dims (same as before)
+        final int xDim = 160;
+        final int yDim = 150;
+
+        // timestamped subfolder per sim (same naming you used)
+        String fn = baseFolder; // base folder created in main
+        String subfolder = fn + "/Sim" + simID + "_row" + prow + "/";
+        File dir = new File(subfolder);
+        dir.mkdirs();
+
+        // -------------------------
+        // UI / visualization setup
+        // -------------------------
+        UIWindow win = HEADLESS ? null : new UIWindow("Normal Bone Remodeling");
+        // Full domain UIGrids (same as your deleted code)
+        UIGrid Cell_vis = new UIGrid(xDim, yDim, 4, 2, 5);
+        UIGrid CXCL9_vis = new UIGrid(xDim, yDim, 2);
+        UIGrid IFNG_vis = new UIGrid(xDim, yDim, 2);
+        UILabel days = new UILabel("days:______________________");
+
+        if (!HEADLESS) {
+            win.AddCol(0, new UILabel("Cells"));
+            win.AddCol(1, days);
+            win.AddCol(0, Cell_vis);
+            win.AddCol(2, new UILabel("CXCL9"));
+            win.AddCol(2, CXCL9_vis);
+            win.AddCol(2, new UILabel("IFN- \u03B3"));
+            win.AddCol(2, IFNG_vis);
+            win.RunGui();
+        }
+
+        // -------------------------
+        // GIF makers
+        // -------------------------
+        GifMaker gm_Cell_vis = new GifMaker(subfolder.concat("/CellVid.gif"), 100, true);
+        GifMaker gm_CXCL9_vis = new GifMaker(subfolder.concat("/CXCL9.gif"), 100, true);
+        GifMaker gm_IFNG_vis = new GifMaker(subfolder.concat("/IFNG.gif"), 100, true);
+
+        // -------------------------
+        // Bone file selection and grid creation
+        // -------------------------
+        String Bone_Filename = null;
+        if (LOCAL) {
+            Bone_Filename = "/Users/80024703/Desktop/code/Bone/BAout_2020May5_Sim14.csv";
+            //Bone_Filename = "/Users/80024703/Desktop/SmallBone.csv";
+            //Bone_Filename = "/Users/80024703/Desktop/bone_data/day_269.csv";
+            //Bone_Filename = "/Users/80024703/Desktop/bone_data/day_394.csv";
+        } else {
+            Bone_Filename = "Bone/BAout_2020May5_Sim14.csv";
+        }
+
+        // Create grid and RNG (give reproducible seed if you want deterministic runs)
+        Rand rng = new Rand(simID + 1000L * prow); // deterministic seed per sim
+        BoneGrid_2022May17 g = new BoneGrid_2022May17(xDim, yDim, rng, Bone_Filename);
+
+
+        // Setup treatment times if needed (you were constructing Tx_subStart)
+        ArrayList<Double> Tx_subStart = new ArrayList<>();
+        if (g.Tx_Duration == g.Tx_Interval) {
+            Tx_subStart.add(0.0);
+        } else {
+            Tx_subStart.add(0.0);
+        }
+
+        // Set parameters from param_list if param sweep active
+        if (PARAM_SWEEP && param_list != null) {
+            g.SetParams(prow, param_list);
+        }
+
+        // Record Output (create PopOut.csv in this sim folder)
+        g.newFileIO(subfolder, "w");
+
+        // Initialize model
+        g.InitBone( condition[0]); // First condition is myeloma cells
+
+        // List for initializing vessels
+        List<Integer> vessLocations = new ArrayList<>();
+
+        // cd8 tcell initial conditions
+        double reducedMeanFraction = 0.23;
+        int totalTcells = condition[1];
+        int activeTcells = (int) Math.floor((1 - reducedMeanFraction) * totalTcells);
+        int activeExtcells = totalTcells - activeTcells; // remainder to keep sum exact
+        int totalTcell = activeTcells + activeExtcells;
+
+        //treg initial conditions
+        double tregFraction = .11;
+        double tregPercent = (((0.6 * tregFraction) / 100.0) * (xDim * yDim));
+        int activeTregs = (int) Math.floor(tregPercent);
+        int maxTregs = (int) Math.floor(tregPercent);
+
+        // exhaustion parameters
+        double dailyExhaustionProb = 0.00131;
+        double dailyTcellDecreaseProb = 0.000583;
+        double dailyTregIncreasenProb = 0.000791;
+
+        boolean initial_recruitment = false;
+        boolean initial_vessel = false;
+
+//        if (TCE){
+//            activeTcells = (int) Math.floor((1 - reducedMeanFraction) * totalTcells);
+//            activeExtcells = totalTcells - activeTcells; // remainder to keep sum exact
+//        }
+//        else if (!TCE){
+//            activeTcells = 60;
+//            activeExtcells = 40;
+//        }
+        int timestepsPerDay = 240;
+        int therapyPeriodWeeks = 1;
+        // -------------------------
+        // main time loop (your original for loop)
+        // -------------------------
+        for (int i = 0; i < g.Nts; i++) {
+            double[] Cell_Counts = g.CellCounts();
+            timeStep = i;
+//            if ((Cell_Counts[7] + Cell_Counts[8]+Cell_Counts[9]) < condition[0]*.50){
+//                TCELL = false;
+//                //TCE = false;
+//            }
+//            else if ((Cell_Counts[7] + Cell_Counts[8]+Cell_Counts[9] >=condition[0]*.50 )){
+//                TCELL = true;
+//                //TCE = true;
+//            }
+            int daysPassed = i / timestepsPerDay;
+            int weeksPassed = daysPassed / 7;
+
+            boolean TCE_active_this_week = ((weeksPassed / therapyPeriodWeeks) % 2 == 0);
+
+            // Step 0a: switch between therapy ON/OFF at the start of the week
+            if (daysPassed % 7 == 0 && i % timestepsPerDay == 0) {
+                if (!TCE_active_this_week) {
+                    TCELL = false;
+                } else {
+                    TCELL = true;
+                }
+            }
+
+
+            if (daysPassed > 0 && runPar) {
+                // Import up to N myeloma cells from other simulations
+                int maxImport = 1; // adjust for how many per timestep
+                for (int k = 0; k < maxImport; k++) {
+                    CellSnapshot snap = myelomaTransferQueue.poll(); // thread-safe
+                    if (snap != null) {
+                        g.importSnapshotToGrid(snap);
+                    } else {
+                        break; // queue empty
+                    }
+                }
+            }
+
+            if (!HEADLESS) {
+                win.TickPause(10);
+            }
+
+
+            // place vessels once (same logic you had)
+            if (!initial_vessel) {
+                int vesselNumber = 200;
+                int k = 0;
+                while (k < vesselNumber) {
+                    int xinit = g.rn.Int(xDim);
+                    int yinit = g.rn.Int(yDim);
+                    if (g.GetAgent(xinit, yinit) != null && g.GetAgent(xinit, yinit).type != LINING && g.GetAgent(xinit, yinit).type != BONE) {
+                        g.GetAgent(xinit, yinit).Dispose();
+                    }
+                    while (g.PopAt(xinit, yinit) > 0) {
+                        xinit = g.rn.Int(xDim);
+                        yinit = g.rn.Int(yDim);
+                    }
+                    BoneCell_2022May17 c = g.NewAgentSQ(xinit, yinit);
+                    vessLocations.add(c.Isq());
+                    c.type = bloodVessel;
+                    k++;
+                }
+                initial_vessel = true;
+            }
+
+            // initial recruitment of T-cells (your code, unchanged)
+            if (TCELL && initial_recruitment == false) {
+                Random rand = new Random();
+                int InitTcells = activeTcells;
+                int InitTregs = activeTregs;
+                int j = 0;
+                int k = 0;
+                int maxAttempts = 1000;
+                int attempts = 0;
+                Collections.shuffle(vessLocations, rand);
+                int[] boundaries = g.BoundaryIs();
+
+                // place initial active T cells
+                while (j < InitTcells && attempts < maxAttempts) {
+                    attempts++;
+                    boolean placed = false;
+                    int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
+
+                    if (g.GetAgent(randomVessLocation).type == bloodVessel) {
+                        int[] movdivHood = MooreHood(true);
+                        int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
+                        if (emptyNeighbors > 0) {
+                            int chosenIndex = g.rn.Int(emptyNeighbors);
+                            int chosenCell = movdivHood[chosenIndex];
+                            if (g.GetAgent(chosenCell) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
+                                c.type = activeTcell;
+                                if (g.rn.Double() < reducedMeanFraction) {
+                                    c.type = EXHT_CELL;
+                                    c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                } else {
+                                    c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                }
+                                j++;
+                                placed = true;
+                            }
+                        }
+                    }
+
+                    // fallback to boundary placement
+                    if (!placed) {
+                        int tries = 0;
+                        while (tries < boundaries.length) {
+                            int randomBoundaryIdx = rand.nextInt(boundaries.length);
+                            int candidate = boundaries[randomBoundaryIdx];
+                            if (g.GetAgent(candidate) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(candidate);
+                                c.type = activeTcell;
+                                if (g.rn.Double() < reducedMeanFraction) {
+                                    c.type = EXHT_CELL;
+                                    c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                } else {
+                                    c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                }
+                                j++;
+                                break;
+                            }
+                            tries++;
+                        }
+                    }
+
+                    if (attempts >= maxAttempts) {
+                    }
+                }
+
+                // place initial Tregs (same as your code)
+                while (k < InitTregs && attempts < maxAttempts) {
+                    attempts++;
+                    boolean placed = false;
+                    int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
+                    if (g.GetAgent(randomVessLocation).type == bloodVessel) {
+                        int[] movdivHood = MooreHood(true);
+                        int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
+                        if (emptyNeighbors > 0) {
+                            int chosenIndex = g.rn.Int(emptyNeighbors);
+                            int chosenCell = movdivHood[chosenIndex];
+                            if (g.GetAgent(chosenCell) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
+                                c.type = supressorTcell;
+                                c.pd_1 = g.boundedGaussian(10, 1, 10, 20);
+                                k++;
+                                placed = true;
+                            }
+                        }
+                    }
+                    if (!placed) {
+                        int tries = 0;
+                        while (tries < boundaries.length) {
+                            int randomBoundaryIdx = rand.nextInt(boundaries.length);
+                            int candidate = boundaries[randomBoundaryIdx];
+                            if (g.GetAgent(candidate) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(candidate);
+                                c.type = supressorTcell;
+                                c.pd_1 = g.boundedGaussian(10, 1, 10, 20);
+                                k++;
+                                break;
+                            }
+                            tries++;
+                        }
+                    }
+                }
+
+                initial_recruitment = true;
+            }
+
+            if (TCELL && initial_recruitment && daysPassed > 0) {
+                int InitTcells;
+                if (Cell_Counts[10] < activeTcells) {
+                    InitTcells = (int) Math.floor(g.boundedGaussian((activeTcells - Cell_Counts[10]), 4, activeTcells - Cell_Counts[10]-4, activeTcells - Cell_Counts[10] + 1));
+                } else {
+                    //InitTcells = (int) g.boundedGaussian(1, 1, 1, 10);
+                    InitTcells = 0;
+                }
+
+                int j = 0;
+                int maxAttempts = 1000;
+                int attempts = 0;
+                Random rand = new Random();
+                Collections.shuffle(vessLocations, rand);
+                int num_placed = 0;
+                int[] boundaries = g.BoundaryIs();
+
+
+                while (j < InitTcells && attempts < maxAttempts) {
+                    attempts++;
+
+                    boolean placed = false;
+
+                    // Select a random blood vessel location
+                    int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
+
+                    if (g.GetAgent(randomVessLocation).type == bloodVessel) {
+                        int[] movdivHood = MooreHood(true);
+                        int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
+
+                        if (emptyNeighbors > 0) {
+                            int chosenIndex = g.rn.Int(emptyNeighbors);
+                            int chosenCell = movdivHood[chosenIndex];
+
+                            if (g.GetAgent(chosenCell) == null) {
+
+                                BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
+                                c.type = activeTcell;
+                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                j++;
+                                placed = true;
+                                num_placed+= 1;
+                            }
+                        }
+                    }
+
+                    // Fallback to boundary if not placed
+                    if (!placed) {
+                        int tries = 0;
+                        while (tries < boundaries.length) {
+                            int randomBoundaryIdx = rand.nextInt(boundaries.length);
+                            int candidate = boundaries[randomBoundaryIdx];
+                            if (g.GetAgent(candidate) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(candidate);
+                                c.type = activeTcell;
+                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                num_placed+=1;
+                                j++;
+                                break;
+                            }
+                            tries++;
+                        }
+                    }
+                }
+
+            }
+
+            if (TCELL && initial_recruitment && daysPassed > 0) {
+                int InitTcells;
+                if (Cell_Counts[11] < activeExtcells) {
+                    InitTcells = (int) Math.floor(g.boundedGaussian((activeExtcells - Cell_Counts[11]), 3, activeExtcells - Cell_Counts[11]-3, activeExtcells - Cell_Counts[11] + 1));
+                } else {
+                    //InitTcells = (int) g.boundedGaussian(1, 1, 1, 10);
+                    InitTcells = 0;
+                }
+
+                int j = 0;
+                int maxAttempts = 1000;
+                int attempts = 0;
+                Random rand = new Random();
+                Collections.shuffle(vessLocations, rand);
+                int num_placed = 0;
+                int[] boundaries = g.BoundaryIs();
+
+                while (j < InitTcells && attempts < maxAttempts) {
+                    attempts++;
+                    boolean placed = false;
+
+                    // Try blood vessel neighborhood
+                    int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
+
+                    if (g.GetAgent(randomVessLocation).type == bloodVessel) {
+                        int[] movdivHood = MooreHood(true);
+                        int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
+
+                        if (emptyNeighbors > 0) {
+                            int chosenIndex = g.rn.Int(emptyNeighbors);
+                            int chosenCell = movdivHood[chosenIndex];
+
+                            if (g.GetAgent(chosenCell) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
+                                c.type = EXHT_CELL;
+                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20); // Lower mean for exhausted
+                                num_placed+=1;
+                                j++;
+                                placed = true;
+                            }
+                        }
+                    }
+
+                    // Fallback to random empty boundary site if no vessel placement succeeded
+                    if (!placed) {
+                        int tries = 0;
+                        while (tries < boundaries.length) {
+                            int randomBoundaryIdx = rand.nextInt(boundaries.length);
+                            int candidate = boundaries[randomBoundaryIdx];
+                            if (g.GetAgent(candidate) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(candidate);
+                                c.type = EXHT_CELL;
+                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                num_placed+=1;
+                                j++;
+                                break;
+                            }
+                            tries++;
+                        }
+                    }
+
+                }
+            }
+
+            if (TCELL && initial_recruitment && daysPassed > 0) {
+                int InitTcells;
+                if (Cell_Counts[12] < activeTregs) {
+                    InitTcells = (int) Math.floor(g.boundedGaussian((activeTregs - Cell_Counts[12]), 1, activeTregs - Cell_Counts[12]-1, activeTregs - Cell_Counts[12] + 1));
+                } else {
+                    //InitTcells = (int) g.boundedGaussian(1, 1, 1, 10);
+                    InitTcells = 0; // as per your original logic
+                }
+
+                int j = 0;
+                int maxAttempts = 1000;
+                int attempts = 0;
+                Random rand = new Random();
+                Collections.shuffle(vessLocations, rand);
+                int num_placed = 0;
+                int[] boundaries = g.BoundaryIs();
+
+                while (j < InitTcells && attempts < maxAttempts) {
+                    attempts++;
+                    boolean placed = false;
+
+                    int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
+
+                    if (g.GetAgent(randomVessLocation).type == bloodVessel) {
+                        int[] movdivHood = MooreHood(true);
+                        int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
+
+                        if (emptyNeighbors > 0) {
+                            int chosenIndex = g.rn.Int(emptyNeighbors);
+                            int chosenCell = movdivHood[chosenIndex];
+
+                            if (g.GetAgent(chosenCell) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
+                                c.type = supressorTcell;
+                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                num_placed+=1;
+                                j++;
+                                placed = true;
+
+                            }
+                        }
+                    }
+
+                    // Fallback: try to place on random boundary cell
+                    if (!placed) {
+                        int tries = 0;
+                        while (tries < boundaries.length) {
+                            int randomBoundaryIdx = rand.nextInt(boundaries.length);
+                            int candidate = boundaries[randomBoundaryIdx];
+                            if (g.GetAgent(candidate) == null) {
+                                BoneCell_2022May17 c = g.NewAgentSQ(candidate);
+                                c.type = supressorTcell;
+                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
+                                num_placed+=1;
+                                j++;
+                                break;
+                            }
+                            tries++;
+                        }
+                    }
+
+                }
+            }
+
+            // Step 1: Global decay (applies to total pool)
+            if (g.rn.Double() < dailyTcellDecreaseProb && (activeTcells + activeExtcells) > 0) {
+                if (activeTcells+activeExtcells < totalTcell) {
+                    // Prefer removing from exhausted first (they're more fragile),
+                    // but if none exist, remove from actives.
+                    if (activeExtcells > 0) {
+                        activeExtcells -= 1;
+                    } else {
+                        activeTcells -= 1;
+                    }
+                }
+            }
+
+            // Step 2: Exhaustion shift (redistribution within pool, no total change)
+            if (activeTcells > 0 && g.rn.Double() < dailyExhaustionProb) {
+                activeTcells -= 1;
+                activeExtcells += 1;
+            }
+
+
+            if (g.rn.Double() < dailyTregIncreasenProb) {
+                if (activeTregs < maxTregs) {
+                    activeTregs += 1;
+                }
+            }
+
+            // Model step and drawing (same as your deleted code)
+            g.ModelStep(i, Cell_Counts, simID);
+
+            // Draw to UI (if GUI is enabled)
+            if (!HEADLESS) {
+                g.Draw(Cell_vis, days, i, simID);
+                g.DrawCXCL9(CXCL9_vis);
+                g.DrawIFNG(IFNG_vis);
+
+            }
+
+            // daily recording: your original condition:
+            if (i % (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+                g.RecordOut(g.out, i, TREATMENT_ON, BORTEZOMIB, MYELOMA);
+                g.RecordClones(g.clones, i);
+                g.RecordBones(g.bones, i);
+                g.RecordLocs(g.locations, i);
+
+                daysPassed += 1;
+                System.out.println("Timestep "+daysPassed);
+                // After stepping all cells in this timestep
+                // Export myeloma cells for transfer
+                for (BoneCell_2022May17 c : g) {
+                    if (c.type == MM) {
+                        // Decide if this cell should move (example: small probability per timestep)
+                        if (g.rn.Double() < 0.01) { // tune probability
+                            CellSnapshot snap = g.exportSnapshot(c);
+                            myelomaTransferQueue.add(snap);
+                            c.Dispose(); // remove from original grid
+                        }
+                    }
+                }
+
+            }
+        } // end time loop
+
+        // -------------------------
+        // cleanup: close files, gifs, window
+        // -------------------------
+        g.closeFileIO();
+        gm_Cell_vis.Close();
+        gm_CXCL9_vis.Close();
+        gm_IFNG_vis.Close();
+
+        if (!HEADLESS) {
+            win.Close();
+        }
+    }
+
 
 
     //sample from a bounded  distribution
@@ -193,11 +770,19 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
 
         out = new FileIO(projPath + "PopOut.csv", mode);
 //        params = new FileIO(projPath + "params.csv",mode);
+        clones = new FileIO(projPath + "clones.csv", mode);
+
+        bones = new FileIO(projPath + "boneOut.csv", mode);
+
+        locations = new FileIO(projPath + "cellLocs.csv", mode);
 
 
         if(mode=="w") {
 
             out.Write("Timestep" + "," + "BONE" + "," + "pOB" + "," + "aOB" + "," + "pOC" + "," + "aOC" + "," + "MSC" + "," + "LINING" + "," + "S_MM" + "," + "R_MM"+"," +"AL_MM"+ ","+"TCell"+","+"ExtTcell"+"," +"T-reg" +","+ "TREATMENT_ON" + "," + "BORTEZOMIB" + "," + "MYELOMA" + "\n");
+            clones.Write("Timestep" + "," + "SimID" + "," + "MHCI" + "," + "BCMA" + "\n");
+            bones.Write("Timestep" + "," + "SimID" + "," + "Position" + "\n");
+            locations.Write("Timestep" + "," + "SimID" + "," + "Position" + ","+"Type"+"\n");
         }
 
     }
@@ -205,6 +790,9 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
     public void closeFileIO () {
 
         out.Close();
+        clones.Close();
+        bones.Close();
+        locations.Close();
 //        params.Close();
     }
 
@@ -226,7 +814,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
         BoneCell_2022May17 cell = GetAgent(x, y);
         return (cell != null && cell.type == LINING);
     }
-    public void InitBone() {
+    public void InitBone(int initMyeloma) {
 
 
 //  FOR IRREGULAR BONE
@@ -250,9 +838,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
         }
         init_BA=InitBoneList.size();
         MarrowArea = (xDim*yDim)-init_BA;//(xDimBone*yDimBone); //0.12 Bone, 0.88 Marrow
-
-        //int myelomaCellsToPlace = 3000; // Total number of myeloma cells to place
-        int myelomaCellsToPlace = 3000; // Total number of myeloma cells to place
+        int myelomaCellsToPlace = initMyeloma;
         int placedMyelomaCells = 0;
         int boneProximityDistance = 10; // Maximum initial distance from bone
         double bcmaNegfraction = 0.0;
@@ -261,7 +847,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
         Queue<int[]> cellQueue = new LinkedList<>(); // Queue to manage cluster growth
         Set<String> visited = new HashSet<>(); // Track visited cells to prevent duplicates
 
-// Step 1: Seed the initial myeloma cell near the bone
+        // Step 1: Seed the initial myeloma cell near the bone
         boolean seedPlaced = false;
         while (!seedPlaced) {
             int xInit = rn.Int(xDim);
@@ -285,6 +871,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
             // Place the initial myeloma cell
             if (isNearBone && PopAt(xInit, yInit) == 0) {
                 NewAgentSQ(xInit, yInit).type = MM; // Seed the initial myeloma cell
+                GetAgent(xInit, yInit).bcmaExpression = 1;
                 cellQueue.add(new int[]{xInit, yInit}); // Add to queue for cluster growth
                 visited.add(xInit + "," + yInit); // Mark as visited
                 placedMyelomaCells++;
@@ -292,7 +879,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
             }
         }
 
-// Step 2: Grow the cluster using a true circular expansion
+        // Step 2: Grow the cluster using a true circular expansion
         while (placedMyelomaCells < myelomaCellsToPlace && !cellQueue.isEmpty()) {
             int[] currentCell = cellQueue.poll(); // Get the next cell from the queue
             int xCurrent = currentCell[0];
@@ -312,9 +899,11 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
                     // Place the myeloma cell if the location is unoccupied
                     if (PopAt(xNeighbor, yNeighbor) == 0) {
                         NewAgentSQ(xNeighbor, yNeighbor).type = MM; // Place the cell
-                        GetAgent(xNeighbor, yNeighbor).mhc_i_expression = boundedGaussian(0.5, 0.1,0, 1);
+                        GetAgent(xNeighbor, yNeighbor).bcmaExpression = 1;
                         if (rn.Double() < bcmaNegfraction){
                             GetAgent(xNeighbor, yNeighbor).bcmaLoss = true;
+                            GetAgent(xNeighbor, yNeighbor).bcmaExpression = rn.Double();
+
 
                         }
                         cellQueue.add(new int[]{xNeighbor, yNeighbor}); // Add to the queue
@@ -334,7 +923,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
 
     }
 
-    public void ModelStep(int time, double [] Cell_Counts) {
+    public void ModelStep(int time, double [] Cell_Counts, int simID) {
 
         //STEP 0: UPDATE GRIDTICK
         /////////////////////////////////////////////////
@@ -346,10 +935,9 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
 
         for (int x = 0; x < CXCL9.xDim; x++) {
             for (int y = 0; y < CXCL9.yDim; y++) {
-                if (GetAgent(x,y)!=null && GetAgent(x, y).type == MM && GetAgent(x, y).bcmaLoss!=true )  {
+                if (GetAgent(x,y)!=null && GetAgent(x, y).type == MM && GetAgent(x, y).bcmaExpression >0)  {
                     CXCL9.Add(x, y, CXCL9_productionRate/maxCXCL9 );
-                }
-                if (GetAgent(x, y) != null && (GetAgent(x, y).type == BONE || GetAgent(x, y).type == LINING)) {
+                } if (GetAgent(x, y) != null && (GetAgent(x, y).type == BONE || GetAgent(x, y).type == LINING)) {
                     CXCL9.Set(x, y, 0.1 * CXCL9_DiffCoef); //Originally had CXCL9_DiffCoef*0.1
                 } else if (x!=xDim-1 && GetAgent(x+1, y) != null && (GetAgent(x+1, y).type == BONE || GetAgent(x+1, y).type == LINING)){
                     CXCL9.Set(x, y, 0.1 * CXCL9_DiffCoef); //Originally had CXCL9_DiffCoef*0.1
@@ -408,15 +996,16 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
         CleanShuffle(rn);
         //ShuffleAgents(rn);
         for (BoneCell_2022May17 c: this) {
-            c.CellStep(time, Cell_Counts);
+            c.CellStep(time, Cell_Counts, simID);
         }
+
 
     }
 
     ////////////////////////////
     //Full Domain (No zoom-in)//
     ////////////////////////////
-    public void Draw(UIGrid vis, UILabel days, int i) {
+    public void Draw(UIGrid vis, UILabel days, int i, int simID) {
         days.SetText("days: "+i*convert_to_days);
         for (int x = 0; x < xDim; x++) {
             for (int y = 0; y < yDim; y++) {
@@ -425,6 +1014,8 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
                     vis.SetPix(x,y, BLACK);
                 } else if (drawMe != null && drawMe.type==MM && drawMe.bcmaLoss==true){
                     vis.SetPix(x,y, BLACK);
+                }else if (drawMe != null && drawMe.type==MM && drawMe.simulationID!=simID) {
+                    vis.SetPix(x, y, RGB(255, 255, 0));
                 }else if (drawMe != null) {
                     //vis.SetPix(x, y, drawMe.color);
                     vis.SetPix(x, y, drawMe.type);
@@ -461,7 +1052,6 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
             }
         }
     }
-
 
     public void RecordOut(FileIO writeHere,int time, boolean treatment_on, boolean btz, boolean myeloma){
         //int ct_BONE = 0, ct_pOB = 0, ct_aOB = 0, ct_pOC = 0, ct_aOC = 0, ct_MSC = 0, ct_LINING = 0;
@@ -506,14 +1096,71 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
 
         }
         //population of one timestep per line
-        //writeHere.Write(ct_BONE+","+ct_pOB+","+ct_aOB+","+ct_pOC+","+ct_aOC+","+ct_MSC+","+ct_LINING+"\n");
         writeHere.Write(time+",");
         writeHere.WriteDelimit(cts,",");
         writeHere.Write("," + treatment_on + "," + btz + "," + myeloma + "\n");
     }
+    public void RecordClones(FileIO writeHere,int time){
+
+        for (BoneCell_2022May17 c : this) {
+            if(c.type==MM) {
+                int simID = c.simulationID;
+                double mhcI = c.mhcIExpression;
+                double bcma = c.bcmaExpression;
+                writeHere.Write(time + "," + simID + "," + mhcI + ","+ bcma + "\n");
+            }
+        }
+    }
+
+    public void RecordBones(FileIO writeHere,int time){
+
+        for (BoneCell_2022May17 c : this) {
+            if(c.type==BONE) {
+                int simID = c.simulationID;
+                int position = c.Isq();
+                writeHere.Write(time + "," + simID + "," + position + "\n");
+            }
+        }
+    }
+
+    public void RecordLocs(FileIO writeHere,int time){
+
+        for (BoneCell_2022May17 c : this) {
+                int simID = c.simulationID;
+                int position = c.Isq();
+                String cellType = "UNKNOWN";
+                if(c.type==pOB){
+                   cellType = "pOB";
+                } else if(c.type==aOB){
+                    cellType = "aOB";
+                } else if(c.type==pOC){
+                    cellType = "pOC";
+                } else if(c.type==aOC){
+                    cellType = "aOC";
+                } else if(c.type==MSC){
+                    cellType = "MSC";
+                } else if(c.type==MM && !c.RESISTANT && !c.bcmaLoss){
+                    cellType = "Sensitive MM";
+                } else if(c.type==MM && c.RESISTANT) {
+                    cellType = "Resistant MM";
+                } else if(c.type==MM && c.bcmaLoss) {
+                    cellType = "AL_MM";
+                } else if(c.type==activeTcell) {
+                    cellType = "Tcell";
+                } else if(c.type==EXHT_CELL) {
+                    cellType = "Ext_Tcell";
+                } else if(c.type == supressorTcell){
+                    cellType = "Treg";
+                }else if(c.type == BONE){
+                    cellType = "BONE";
+                }else if(c.type == LINING){
+                    cellType = "LINING";
+                }
+                writeHere.Write(time + "," + simID + "," + position +  "," + cellType +"\n");
+        }
+    }
 
     public double[] CellCounts(){
-        //int BONE = 0, pOB = 1, aOB = 2, pOC = 3, aOC = 4, MSC = 5, LINING = 6, MM = 7;
         double[] cts = new double[13];
 
         for (BoneCell_2022May17 c : this) {
@@ -560,540 +1207,70 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
     //                                                      MAIN                                                      //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    public static void main(String[] args) {
-
-//        boolean HEADLESS = true; //use true with cluster
-
+    public static void main(String[] args) throws InterruptedException {
         if (HEADLESS) {
             System.setProperty("java.awt.headless", "true");
         }
 
-        int xDim = 160;//500; //px
-        int yDim = 150;//250; //px
+        // base folder and timestamp (this is the code you kept before)
         String sdf = new SimpleDateFormat("yyyyMMMd").format(new Date());
-
-        UIWindow win = HEADLESS ? null : new UIWindow("Normal Bone Remodeling");
         String fn = "Bone_" + sdf;
-        File dir = new File(fn);
-        dir.mkdir();
+        File baseDir = new File(fn);
+        baseDir.mkdir();
 
-        ///////////////////////
-        //FOR PARAMETER SWEEP//
-        ///////////////////////
-
+        // PARAM SWEEP reading
         int param_list_size;
         ArrayList<String> param_list = null;
-
-        if(PARAM_SWEEP) {
+        if (PARAM_SWEEP) {
             FileIO Params = new FileIO("Bone/boneRemodeling_2022May17/params.csv", "r");
             param_list = Params.Read();
             param_list_size = param_list.size();
-        }else{
-            param_list_size = 2; //this will go through iteration once for pre-defined parameters
+        } else {
+            param_list_size = 2;
+        }
+
+        // Thread pool (limit threads if you want)
+        int numThreads = Math.min(numSims, Runtime.getRuntime().availableProcessors());
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+
+        int[][] initialConditions = {
+                {3000, 208}
+        };
+        if (runPar){
+            for (int prow = 1; prow < param_list_size; prow++) {
+                for (int sim = 0; sim < numSims; sim++) {
+                    final int simID = sim;
+                    final int row = prow;
+                    final String projectBase = fn;
+                    final ArrayList<String> paramsCopy = param_list; // may be null
+
+                    final int[] condition = initialConditions[simID % initialConditions.length];
+
+                    executor.submit(() -> {
+                        runSimulation(simID, row, projectBase, paramsCopy, condition);
+                    });
+                }
+            }
+            executor.shutdown();
+            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+            System.out.println("All simulations finished.");
+        }
+        else{
+            for (int prow = 1; prow < param_list_size; prow++) {
+                for (int sim = 0; sim < numSims; sim++) {
+                    final int simID = sim;
+                    final int row = prow;
+                    final String projectBase = fn;
+                    final ArrayList<String> paramsCopy = param_list; // may be null
+                    final int[] condition = initialConditions[simID % initialConditions.length];
+                    runSimulation(simID, row, projectBase, paramsCopy, condition);
+                }
+            }
         }
 
 
-        //Define parameters
-        for (int prow=1; prow<param_list_size; prow++) {
-
-            for (int sim = 0; sim < numSims; sim++) {
-                String subfolder = fn + "/Sim" + sim + "_row" + prow + "/";
-                dir = new File(subfolder);
-                boolean success = dir.mkdir();
-
-                if (success) {
-
-
-                    ////////////////////////////////////////
-                    //UIGrid                              //
-                    //compx=number of columns (default 1) //
-                    //compy=number of rows (default 1)    //
-                    ////////////////////////////////////////
-
-                    //Full domain
-                    UIGrid Cell_vis = new UIGrid(xDim, yDim, 4, 2, 5);
-                    UIGrid CXCL9_vis = new UIGrid(xDim, yDim, 2);//scaleFactor with BDF: 2
-                    UIGrid IFNG_vis = new UIGrid(xDim, yDim, 2);//scaleFactor with BDF: 2
-
-
-                    UILabel days = new UILabel("days:______________________");
-
-
-                    if (!HEADLESS) {
-                        win.AddCol(0, new UILabel("Cells"));
-                        win.AddCol(1, days);
-                        win.AddCol(0, Cell_vis);
-                        win.AddCol(2, new UILabel("CXCL9"));
-                        win.AddCol(2, CXCL9_vis);
-                        win.AddCol(2, new UILabel("IFN- \u03B3"));
-                        win.AddCol(2, IFNG_vis);
-
-                        win.RunGui();
-                    }
-
-                    // GIF MAKER
-                    String projPath = subfolder; //PWD() + subfolder;
-                    GifMaker gm_Cell_vis = new GifMaker(projPath.concat("/").concat("CellVid").concat(".gif"), 100, true);
-                    GifMaker gm_CXCL9_vis = new GifMaker(projPath.concat("/").concat("CXCL9").concat(".gif"), 100, true);
-                    GifMaker gm_IFNG_vis = new GifMaker(projPath.concat("/").concat("IFNG").concat(".gif"), 100, true);
-                    String Bone_Filename = null;
-                    if (LOCAL) {
-                        Bone_Filename = "/Users/80024703/Desktop/code/Bone/BAout_2020May5_Sim14.csv";
-                    } else {
-                        Bone_Filename = "Bone/BAout_2020May5_Sim14.csv";
-                    }
-                    BoneGrid_2022May17 g = new BoneGrid_2022May17(xDim, yDim, new Rand(), Bone_Filename); //set seed to reproduce results
-
-                    //Rand(seed:1) when want to reproduce results
-
-                    //Set treatment schedule
-                    ArrayList<Double> Tx_subStart = new ArrayList<>();
-                    if (g.Tx_Duration == g.Tx_Interval) { //continuous treatment
-                        Tx_subStart.add(0.0);//1440.0/TIMESTEP_AGENT); //1 day=1440 minutes
-                    } else { //pulsed treatment
-                        Tx_subStart.add(0.0);//1440.0/TIMESTEP_AGENT); //1 day=1440 minutes
-                    }
-                    double subStart_time = 0;
-
-
-                    //Set parameters
-                    if (PARAM_SWEEP) { //Note: Other parameters dependent on this list will not be updated
-                        g.SetParams(prow, param_list);
-                    }
-
-
-                    //Record Output
-                    g.newFileIO(projPath, "w");
-
-                    //Initialize model
-                    g.InitBone();
-
-
-//                  RMevents=new int[Nevents];
-//                  g.rn.RandomIS(RMevents, 0, g.curI * g.TURNOVER_TIME);
-
-                    List<Integer> vessLocations = new ArrayList<>();
-
-
-                    double reducedMeanFraction = 0.23; // 0.23 (23%)is the default  based on experimental data
-                    double tregFraction = .11; //.18 is the default based on experimental data 4/7/25 was set to .11. 4/17/25 .11 is now the default
-                    double tcellPercent = 0.868/100 * (xDim * yDim);
-                    double tregPercent = (((0.6 * tregFraction ) / 100)  * (xDim * yDim));
-                    int activeTcells = (int) Math.floor((1-reducedMeanFraction) * tcellPercent);
-                    int activeExtcells = (int) Math.floor(reducedMeanFraction * tcellPercent); //208 total Tcells in the model
-                    int activeTregs = (int) Math.floor(tregPercent);
-                    double dailyExhaustionProb = 0.00131;
-                    double dailyTcellDecreaseProb = 0.000583;
-                    double dailyTregIncreasenProb = 0.000791;
-                    int tcellDecrease = 208;
-                    //Loop through//
-                    ////////////////
-                    boolean initial_recruitment = false;
-                    boolean initial_vessel = false;
-                    for (int i = 0; i < g.Nts; i++) {//g.Nts
-                        timeStep = i; // 240 ts is equal to one day
-
-                        if (!HEADLESS) {
-                            win.TickPause(10); //slow down visualization
-                        }
-
-                        double[] Cell_Counts = g.CellCounts(); //int BONE = 0, pOB = 1, aOB = 2, pOC = 3, aOC = 4, MSC = 5, LINING = 6, MM = 7;
-                        if (initial_vessel==false) {
-                            int vesselNumber = 200;
-                            int k = 0;
-                            while (k < vesselNumber) {
-                                int xinit = g.rn.Int(xDim);
-                                int yinit = g.rn.Int(yDim);
-                                if (g.GetAgent(xinit, yinit) != null && g.GetAgent(xinit, yinit).type != LINING&& g.GetAgent(xinit, yinit).type != BONE) {
-                                    g.GetAgent(xinit, yinit).Dispose();
-                                }
-                                while (g.PopAt(xinit, yinit) > 0) {
-                                    xinit = g.rn.Int(xDim);
-                                    yinit = g.rn.Int(yDim);
-                                }
-                                // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                                BoneCell_2022May17 c = g.NewAgentSQ(xinit, yinit);
-                                vessLocations.add(c.Isq());
-                                c.type = bloodVessel;
-                                k++;
-                            }
-                            initial_vessel = true;
-                        }
-
-
-                        if (TCELL && initial_recruitment == false) {
-                            Random rand = new Random();
-                            int InitTcells = activeTcells; // Number of T-cells to place //160 for TCE // 60
-                            int InitTregs = activeTregs; // Number of suppressor Tcells to place
-                            int j = 0; // Counter for successfully placed T-cells
-                            int k = 0; // Counter for successfully placed T-cells
-                            int maxAttempts = 1000; // Prevent infinite loops
-                            int attempts = 0; // Counter for total attempts
-                            Collections.shuffle(vessLocations, rand);
-                            int[] boundaries = g.BoundaryIs();
-
-                            while (j < InitTcells && attempts < maxAttempts) {
-                                attempts++;
-
-                                // Try placing near a vessel
-                                boolean placed = false;
-                                int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
-
-                                if (g.GetAgent(randomVessLocation).type == bloodVessel) {
-                                    int[] movdivHood = MooreHood(true);
-                                    int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
-
-                                    if (emptyNeighbors > 0) {
-                                        int chosenIndex = g.rn.Int(emptyNeighbors);
-                                        int chosenCell = movdivHood[chosenIndex];
-
-                                        if (g.GetAgent(chosenCell) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
-                                            c.type = activeTcell;
-                                            if (g.rn.Double() < reducedMeanFraction) {
-                                                c.type = EXHT_CELL;
-                                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            } else {
-                                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            }
-                                            j++;
-                                            placed = true;
-                                        }
-                                    }
-                                }
-
-                                // If placement near vessel failed, fall back to random boundary
-                                if (!placed) {
-                                    int tries = 0;
-                                    while (tries < boundaries.length) {
-                                        int randomBoundaryIdx = rand.nextInt(boundaries.length);
-                                        int candidate = boundaries[randomBoundaryIdx];
-                                        if (g.GetAgent(candidate) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(candidate);
-                                            c.type = activeTcell;
-                                            if (g.rn.Double() < reducedMeanFraction) {
-                                                c.type = EXHT_CELL;
-                                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            } else {
-                                                c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            }
-                                            j++;
-                                            break;
-                                        }
-                                        tries++;
-                                    }
-                                }
-
-                                if (attempts >= maxAttempts) {
-                                    System.out.println("Reached maximum attempts. T-cells placed: " + j + " out of " + InitTcells);
-                                }
-                            }
-
-                            while (k < InitTregs && attempts < maxAttempts) {
-                                attempts++;
-
-                                boolean placed = false;
-                                int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
-
-                                if (g.GetAgent(randomVessLocation).type == bloodVessel) {
-                                    int[] movdivHood = MooreHood(true);
-                                    int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
-
-                                    if (emptyNeighbors > 0) {
-                                        int chosenIndex = g.rn.Int(emptyNeighbors);
-                                        int chosenCell = movdivHood[chosenIndex];
-
-                                        if (g.GetAgent(chosenCell) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
-                                            c.type = supressorTcell;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 10, 20);
-                                            k++;
-                                            placed = true;
-                                        }
-                                    }
-                                }
-
-                                // Fallback: pick random boundary if no vessel-adjacent space was found
-                                if (!placed) {
-                                    int tries = 0;
-                                    while (tries < boundaries.length) {
-                                        int randomBoundaryIdx = rand.nextInt(boundaries.length);
-                                        int candidate = boundaries[randomBoundaryIdx];
-                                        if (g.GetAgent(candidate) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(candidate);
-                                            c.type = supressorTcell;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 10, 20);
-                                            k++;
-                                            break;
-                                        }
-                                        tries++;
-                                    }
-                                }
-
-                            }
-
-
-
-                            // Update flags to indicate T-cell recruitment is complete
-                            initial_recruitment = true;
-                        }
-
-
-                        if (TCELL && initial_recruitment && daysPassed > 0) {
-                            int InitTcells;
-                            if (Cell_Counts[10] < activeTcells) {
-                                InitTcells = (int) Math.floor(g.boundedGaussian((activeTcells - Cell_Counts[10]), 4, activeTcells - Cell_Counts[10]-4, activeTcells - Cell_Counts[10] + 1));
-                            } else {
-                                //InitTcells = (int) g.boundedGaussian(1, 1, 1, 10);
-                                InitTcells = 0;
-                            }
-
-                            int j = 0;
-                            int maxAttempts = 1000;
-                            int attempts = 0;
-                            Random rand = new Random();
-                            Collections.shuffle(vessLocations, rand);
-                            int num_placed = 0;
-                            int[] boundaries = g.BoundaryIs();
-
-
-                            while (j < InitTcells && attempts < maxAttempts) {
-                                attempts++;
-
-                                boolean placed = false;
-
-                                // Select a random blood vessel location
-                                int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
-
-                                if (g.GetAgent(randomVessLocation).type == bloodVessel) {
-                                    int[] movdivHood = MooreHood(true);
-                                    int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
-
-                                    if (emptyNeighbors > 0) {
-                                        int chosenIndex = g.rn.Int(emptyNeighbors);
-                                        int chosenCell = movdivHood[chosenIndex];
-
-                                        if (g.GetAgent(chosenCell) == null) {
-
-                                            BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
-                                            c.type = activeTcell;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            j++;
-                                            placed = true;
-                                            num_placed+= 1;
-                                        }
-                                    }
-                                }
-
-                                // Fallback to boundary if not placed
-                                if (!placed) {
-                                    int tries = 0;
-                                    while (tries < boundaries.length) {
-                                        int randomBoundaryIdx = rand.nextInt(boundaries.length);
-                                        int candidate = boundaries[randomBoundaryIdx];
-                                        if (g.GetAgent(candidate) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(candidate);
-                                            c.type = activeTcell;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            num_placed+=1;
-                                            j++;
-                                            break;
-                                        }
-                                        tries++;
-                                    }
-                                }
-                            }
-//                            System.out.println("Active Tcells");
-//                            System.out.println(activeTcells);
-//                            System.out.println(Cell_Counts[10]);
-//                            System.out.println("Placed Tcells "+num_placed);
-//                            System.out.println();
-
-                        }
-
-                        if (TCELL && initial_recruitment && daysPassed > 0) {
-                            int InitTcells;
-                            if (Cell_Counts[11] < activeExtcells) {
-                                InitTcells = (int) Math.floor(g.boundedGaussian((activeExtcells - Cell_Counts[11]), 3, activeExtcells - Cell_Counts[11]-3, activeExtcells - Cell_Counts[11] + 1));
-                            } else {
-                                //InitTcells = (int) g.boundedGaussian(1, 1, 1, 10);
-                                InitTcells = 0;
-                            }
-
-                            int j = 0;
-                            int maxAttempts = 1000;
-                            int attempts = 0;
-                            Random rand = new Random();
-                            Collections.shuffle(vessLocations, rand);
-                            int num_placed = 0;
-                            int[] boundaries = g.BoundaryIs();
-
-                            while (j < InitTcells && attempts < maxAttempts) {
-                                attempts++;
-                                boolean placed = false;
-
-                                // Try blood vessel neighborhood
-                                int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
-
-                                if (g.GetAgent(randomVessLocation).type == bloodVessel) {
-                                    int[] movdivHood = MooreHood(true);
-                                    int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
-
-                                    if (emptyNeighbors > 0) {
-                                        int chosenIndex = g.rn.Int(emptyNeighbors);
-                                        int chosenCell = movdivHood[chosenIndex];
-
-                                        if (g.GetAgent(chosenCell) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
-                                            c.type = EXHT_CELL;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 1, 20); // Lower mean for exhausted
-                                            num_placed+=1;
-                                            j++;
-                                            placed = true;
-                                        }
-                                    }
-                                }
-
-                                // Fallback to random empty boundary site if no vessel placement succeeded
-                                if (!placed) {
-                                    int tries = 0;
-                                    while (tries < boundaries.length) {
-                                        int randomBoundaryIdx = rand.nextInt(boundaries.length);
-                                        int candidate = boundaries[randomBoundaryIdx];
-                                        if (g.GetAgent(candidate) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(candidate);
-                                            c.type = EXHT_CELL;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            num_placed+=1;
-                                            j++;
-                                            break;
-                                        }
-                                        tries++;
-                                    }
-                                }
-
-                            }
-//                            System.out.println("Ext Tcells");
-//                            System.out.println(activeExtcells);
-//                            System.out.println(Cell_Counts[11]);
-//                            System.out.println("Placed Ext Tcells "+num_placed);
-//                            System.out.println();
-                        }
-
-                        if (TCELL && initial_recruitment && daysPassed > 0) {
-                            int InitTcells;
-                            if (Cell_Counts[12] < activeTregs) {
-                                InitTcells = (int) Math.floor(g.boundedGaussian((activeTregs - Cell_Counts[12]), 1, activeTregs - Cell_Counts[12]-1, activeTregs - Cell_Counts[12] + 1));
-                            } else {
-                                //InitTcells = (int) g.boundedGaussian(1, 1, 1, 10);
-                                InitTcells = 0; // as per your original logic
-                            }
-
-                            int j = 0;
-                            int maxAttempts = 1000;
-                            int attempts = 0;
-                            Random rand = new Random();
-                            Collections.shuffle(vessLocations, rand);
-                            int num_placed = 0;
-                            int[] boundaries = g.BoundaryIs();
-
-                            while (j < InitTcells && attempts < maxAttempts) {
-                                attempts++;
-                                boolean placed = false;
-
-                                int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
-
-                                if (g.GetAgent(randomVessLocation).type == bloodVessel) {
-                                    int[] movdivHood = MooreHood(true);
-                                    int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
-
-                                    if (emptyNeighbors > 0) {
-                                        int chosenIndex = g.rn.Int(emptyNeighbors);
-                                        int chosenCell = movdivHood[chosenIndex];
-
-                                        if (g.GetAgent(chosenCell) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(chosenCell);
-                                            c.type = supressorTcell;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            num_placed+=1;
-                                            j++;
-                                            placed = true;
-
-                                        }
-                                    }
-                                }
-
-                                // Fallback: try to place on random boundary cell
-                                if (!placed) {
-                                    int tries = 0;
-                                    while (tries < boundaries.length) {
-                                        int randomBoundaryIdx = rand.nextInt(boundaries.length);
-                                        int candidate = boundaries[randomBoundaryIdx];
-                                        if (g.GetAgent(candidate) == null) {
-                                            BoneCell_2022May17 c = g.NewAgentSQ(candidate);
-                                            c.type = supressorTcell;
-                                            c.pd_1 = g.boundedGaussian(10, 1, 1, 20);
-                                            num_placed+=1;
-                                            j++;
-                                            break;
-                                        }
-                                        tries++;
-                                    }
-                                }
-
-                            }
-//                            System.out.println("Suppresor Tcells");
-//                            System.out.println(activeTregs);
-//                            System.out.println(Cell_Counts[12]);
-//                            System.out.println("Placed Supp Tcells "+ num_placed);
-//                            System.out.println();
-                        }
-
-                        if (g.rn.Double() <dailyTcellDecreaseProb ){
-                            tcellDecrease = tcellDecrease -1;
-                            activeTcells = activeTcells-1;
-                            activeExtcells = activeExtcells -1;
-                        }
-                        if ( g.rn.Double() < dailyTregIncreasenProb) {
-                            activeTregs = activeTregs + 1;
-                        }
-                        if (activeExtcells <= tcellDecrease && g.rn.Double() < dailyExhaustionProb) {
-                            activeTcells = activeTcells - 1;
-                            activeExtcells = activeExtcells + 1;
-                        }
-
-                        g.ModelStep(i, Cell_Counts);
-
-                        g.Draw(Cell_vis, days, i);
-                        g.DrawCXCL9(CXCL9_vis);
-                        g.DrawIFNG(IFNG_vis);
-
-                        if (i % (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)) == 0) {
-                            //240ts = 1 day
-
-
-
-                            g.RecordOut(g.out, i, TREATMENT_ON, BORTEZOMIB, MYELOMA);
-                            //System.out.println("Timestep =" + i);
-                            daysPassed += 1;
-                        }
-                    }
-
-                    //Close FileIO
-                    g.closeFileIO();
-
-                    //Close GifMaker
-                    gm_Cell_vis.Close();
-                    gm_CXCL9_vis.Close();
-
-                    //Close UIWindow
-                    if (!HEADLESS) {
-                        win.Close();
-                    }
-                }
-            } //END OF MULTIPLE RUNS
-        } //end parameter loop
     }
+
 
 
 }
@@ -1108,4 +1285,487 @@ class BoneCell_2022May17 extends AgentSQ2Dunstackable<BoneGrid_2022May17> {
     //CELL FIELDS//
     ///////////////
 
+    public int type;
+
+    public int color;
+
+
+    //Lining
+    int liningAge = 0; //counter for when lining old enough for remodeling event
+    //MM
+    boolean RESISTANT = false;
+
+    boolean bcmaLoss = false;
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //CELL METHODS//////////////////////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // 1. CellStep:                                                                                        //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+    public int seekCXCL9() {
+        int neighbors = MapHood(G.tmoveHood); // includes self
+        double[] CXCL9_levels = new double[9]; // stores CXCL9 levels at the 8 directions and the center
+
+        // Extracting CXCL9 levels for all 8 directions around the center position
+        for (int i = 0; i < 9; i++) {
+            CXCL9_levels[i] = G.CXCL9.Get(G.tmoveHood[i]);
+        }
+
+        double rnum = G.rn.Double();
+        double ProbSum = 0.0;
+        ArrayList<Integer> emptyHood = new ArrayList<>();
+        ArrayList<Double> cProbArray = new ArrayList<>(); // cumulative probabilities
+
+        for (int i = 0; i < neighbors; i++) {
+            if (G.GetAgent(G.tmoveHood[i]) == null) {
+                emptyHood.add(G.tmoveHood[i]); // add index to list
+
+                double P = 0;
+                switch (i) {
+                    case 1: // right
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[1] - CXCL9_levels[2]);
+                        break;
+                    case 2: // left
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[1] - CXCL9_levels[2]);
+                        break;
+                    case 3: // up
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[3] - CXCL9_levels[4]);
+                        break;
+                    case 4: // down
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[3] - CXCL9_levels[4]);
+                        break;
+                    case 5: // top-right
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[5] - CXCL9_levels[6]);
+                        break;
+                    case 6: // top-left
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[5] - CXCL9_levels[6]);
+                        break;
+                    case 7: // bottom-right
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[7] - CXCL9_levels[8]);
+                        break;
+                    case 8: // bottom-left
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[7] - CXCL9_levels[8]);
+                        break;
+                }
+
+                P = Math.max(P, 0); // ensure non-negative probability
+
+                if (cProbArray.size() > 0) {
+                    cProbArray.add(P + cProbArray.get(cProbArray.size() - 1));
+                } else {
+                    cProbArray.add(P);
+                }
+                ProbSum += P;
+            }
+        }
+
+        int moveToIndex = G.tmoveHood[G.rn.Int(neighbors)]; // Default to the center index if no movement
+
+        for (int i = 0; i < cProbArray.size(); i++) {
+            if (rnum <= cProbArray.get(i) / ProbSum) {
+                moveToIndex = emptyHood.get(i);
+                break;
+            }
+        }
+
+        return moveToIndex;
+    }
+
+    public int seekIFNG() {
+        int neighbors = MapHood(G.tmoveHood); // includes self
+        double[] IFNG_levels = new double[9]; // stores IFNG levels at the 8 directions and the center
+
+        // Extracting IFNG levels for all 8 directions around the center position
+        for (int i = 0; i < 9; i++) {
+            IFNG_levels[i] = G.IFNG.Get(G.tmoveHood[i]);
+        }
+
+        double rnum = G.rn.Double();
+        double ProbSum = 0.0;
+        ArrayList<Integer> emptyHood = new ArrayList<>();
+        ArrayList<Double> cProbArray = new ArrayList<>(); // cumulative probabilities
+
+        for (int i = 0; i < neighbors; i++) {
+            if (G.GetAgent(G.tmoveHood[i]) == null) {
+                emptyHood.add(G.tmoveHood[i]); // add index to list
+
+                double P = 0;
+                switch (i) {
+                    case 1: // right
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[1] - IFNG_levels[2]);
+                        break;
+                    case 2: // left
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[1] - IFNG_levels[2]);
+                        break;
+                    case 3: // up
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[3] - IFNG_levels[4]);
+                        break;
+                    case 4: // down
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[3] - IFNG_levels[4]);
+                        break;
+                    case 5: // top-right
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[5] - IFNG_levels[6]);
+                        break;
+                    case 6: // top-left
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[5] - IFNG_levels[6]);
+                        break;
+                    case 7: // bottom-right
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[7] - IFNG_levels[8]);
+                        break;
+                    case 8: // bottom-left
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxIFNG) / 8 * (IFNG_levels[7] - IFNG_levels[8]);
+                        break;
+                }
+
+                P = Math.max(P, 0); // ensure non-negative probability
+
+                if (cProbArray.size() > 0) {
+                    cProbArray.add(P + cProbArray.get(cProbArray.size() - 1));
+                } else {
+                    cProbArray.add(P);
+                }
+                ProbSum += P;
+            }
+        }
+
+        int moveToIndex = G.tmoveHood[G.rn.Int(neighbors)]; // Default to the center index if no movement
+
+        for (int i = 0; i < cProbArray.size(); i++) {
+            if (rnum <= cProbArray.get(i) / ProbSum) {
+                moveToIndex = emptyHood.get(i);
+                break;
+            }
+        }
+
+        return moveToIndex;
+    }
+
+    void Init() {
+        if (type == BONE || type==LINING) { //Include aOB because they will turn into bone
+            G.count_BA++;
+        }
+    }
+
+
+    public boolean MarrowInHood () {
+        int[] MarrowHood = VonNeumannHood(false); //4 neighbors
+        int options = MapEmptyHood(MarrowHood); //occupied positions surrounding pOB
+        return options > 0;
+    }
+
+    double tcellAge=0;
+    double lifespan=0;
+    double pd_1 = 0;
+    double pd_l1 = 0;
+    void Tcell_Kill() {
+        if (type == MM) {
+            this.Dispose();}
+    }
+    boolean myeloma_bound = false;
+
+    boolean mhcLoss = false;
+    double bcmaExpression = 1.0;
+    double mhcIExpression = 1.0;
+    int simulationID;
+
+    public void CellStep(int time, double [] Cell_Counts, int simID) {
+
+
+        ///////////
+        //MYELOMA//
+        ///////////
+        if (type == MM) {
+
+            if (time ==0){
+
+            this.simulationID = simID;
+            }
+//            if (this.simulationID!=simID) {
+//                color = RGB(255, 255, 0);
+//            }
+            double rn_BirthDeath = G.rn.Double();
+            double pdiv;
+            double pdeath = G.MM_DEATH;
+
+            double scaleFactor = 0.7 + (0.3 * this.bcmaExpression); // bcma=0 → 0.7, bcma=1 → 1.0
+            pdiv = ProbScale((1.0 / 2400) * scaleFactor, MinToHour);
+            ///////////
+            //MM dies//
+            ///////////
+            if (rn_BirthDeath < ProbScale(pdeath, TIMESTEP_AGENT)) {//rn_BirthDeath < pdeath){
+                //MM dies
+                color = WHITE;
+                Dispose();
+            }
+            else if (rn_BirthDeath < ProbScale(pdiv, TIMESTEP_AGENT)) {
+
+                //////////////
+                //MM divides//
+                //////////////
+                // Preallocate a neighborhood array (outside loop, reuse for speed)
+                int[] hood = MooreHood(true);
+                int emptyNeighbors = MapEmptyHood(hood);
+                if (emptyNeighbors > 0) {
+                    // Choose a random empty spot from the mapped hood
+                    int rIndex = G.rn.Int(emptyNeighbors);
+                    int chosenCell = hood[rIndex];
+
+                    if (G.GetAgent(chosenCell) == null) { // Confirm still empty
+                        BoneCell_2022May17 child = G.NewAgentSQ(chosenCell);
+                        child.type = this.type;
+                        child.RESISTANT = this.RESISTANT;
+                        child.simulationID = this.simulationID;
+
+                        if (G.rn.Double() < G.antigenLoss){
+                            double[] possibleValues = {0.0, 0.25, 0.5, 0.75};
+                            int index = G.rn.Int(possibleValues.length); // random integer 0–3
+                            double newExpression = possibleValues[index];
+                            child.mhcIExpression = newExpression;
+                            child.mhcLoss = true;
+                        }
+                        else{child.mhcIExpression = this.mhcIExpression;
+                        }
+
+                        // Antigen loss mutation
+                        if (G.rn.Double() < G.antigenLoss && bcmaLoss==false) {
+                            // Pick one of four discrete expression levels: 0, 0.25, 0.5, or 0.75
+                            double[] possibleValues = {0.0, 0.25, 0.5, 0.75};
+                            int index = G.rn.Int(possibleValues.length); // random integer 0–3
+                            double newExpression = possibleValues[index];
+                            if (child != null) {
+                                child.bcmaExpression = newExpression;
+                                child.bcmaLoss = true;
+                            }
+                        } else {
+                            child.bcmaExpression = this.bcmaExpression;
+                            child.mhcLoss = mhcLoss;
+                        }
+                    }
+                }
+            }
+
+            int[] Hood = MooreHood(true); // For division and movement
+            int options = MapOccupiedHood(Hood); // Mapping occupied spots
+            double x = 4.73e-8;
+            for (int j = 0; j < options; j++) {
+                if (G.GetAgent(Hood[j]) != null && G.GetAgent(Hood[j]).type == BONE || G.GetAgent(Hood[j]).type == LINING) {
+                    if(G.rn.Double() < x){
+                    G.GetAgent(Hood[j]).Dispose();
+                        break;
+                    }
+
+                }
+            }
+        }
+
+        if (type == EXHT_CELL) {
+            this.myeloma_bound = false;
+            boolean encounteredMyeloma = false; // Track if a myeloma cell is encountered
+            this.lifespan = G.boundedGaussian(30, 1, 30, 34);
+
+            // Increment T cell age every 24 hours
+            if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+                //this.tcellAge += 1;
+            }
+            int emptyNeighbors = MapEmptyHood(MooreHood(true)); // mapping empty spots
+            if (emptyNeighbors > 0 &&  G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT) ) {
+                for (int i = 0; i < emptyNeighbors; i++) {
+                    int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
+                    int chosenCell = MooreHood(true)[chosenIndex]; // Get the chosen empty cell
+                    if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
+                        BoneCell_2022May17 child = G.NewAgentSQ(chosenCell);
+                        child.type = this.type;
+                        child.tcellAge = 0;
+                        child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
+                        break;
+                    }
+                }
+            }
+
+
+            for (int run = 0; run < 6; run++) {
+                // Transition to exhausted T cell if pd_l1 exceeds pd_1
+                if (this.pd_l1 >= this.pd_1) {
+                    this.Dispose();
+                    break;
+                }
+                int[] movdivHood = MooreHood(true); // For division and movement
+                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+
+                // Age-related death logic
+                if (this.tcellAge >= this.lifespan) {
+                    this.Dispose();
+                    break;
+                }
+
+                else {
+
+                    double x = ProbScale( 0.12*(.5),TIMESTEP_AGENT);
+                    //double x = .12/2;
+                    // Killing logic
+                    for (int j = 0; j < options; j++) {
+                        if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == MM && G.GetAgent(movdivHood[j]).bcmaExpression>0) {
+                            encounteredMyeloma = true; // Stop movement if any myeloma cell is found
+                            this.myeloma_bound = true;
+                            if (G.rn.Double() < x*(G.GetAgent(movdivHood[j]).bcmaExpression+G.GetAgent(movdivHood[j]).mhcIExpression)) {
+                                this.pd_l1 += 1;
+                                G.GetAgent(movdivHood[j]).Tcell_Kill();
+                            }
+                            break; // Exit the inner loop as soon as a myeloma cell is encountered
+                        }
+                    }
+                }
+
+                // If a myeloma cell is encountered, break out of the outer loop immediately
+                if (encounteredMyeloma) {
+                    break;
+                }
+
+                // Movement logic - only execute if no myeloma cell was encountered
+                int moveToIndex = seekCXCL9();
+                if (G.GetAgent(moveToIndex) == null) {
+                    MoveSQ(moveToIndex);
+                }
+            }
+        }
+
+
+        if (type == activeTcell) {
+            this.myeloma_bound = false;
+            boolean encounteredMyeloma = false; // Track if a myeloma cell is encountered
+            this.lifespan = G.boundedGaussian(30, 1, 30, 34);
+
+            // Increment T cell age every 24 hours
+            if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+                this.tcellAge += 1;
+            }
+            int emptyNeighbors = MapEmptyHood(MooreHood(true)); // mapping empty spots
+            if (emptyNeighbors > 0 &&  G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT) ) {
+                for (int i = 0; i < emptyNeighbors; i++) {
+                    int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
+                    int chosenCell = MooreHood(true)[chosenIndex]; // Get the chosen empty cell
+                    if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
+                        BoneCell_2022May17 child = G.NewAgentSQ(chosenCell);
+                        child.type = this.type;
+                        child.tcellAge = 0;
+                        child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
+                        break;
+                    }
+                }
+            }
+
+            for (int run = 0; run < 6; run++) {
+                // Transition to exhausted T cell if pd_l1 exceeds pd_1
+                if (this.pd_l1 >= this.pd_1) {
+                    this.Dispose();
+                    break;
+                }
+                int[] movdivHood = MooreHood(true); // For division and movement
+                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+
+                // Age-related death logic
+                if (this.tcellAge >= this.lifespan) {
+                    this.Dispose();
+                    break;
+                }
+
+                else {
+                    double x = ProbScale(.12, TIMESTEP_AGENT);
+                    //double x = .12;4
+
+                    // Killing logic
+                    for (int j = 0; j < options; j++) {
+                        if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == MM && G.GetAgent(movdivHood[j]).bcmaExpression>0) {
+                            encounteredMyeloma = true; // Stop movement if any myeloma cell is found
+                            this.myeloma_bound = true;
+                            if (G.rn.Double() < x * (G.GetAgent(movdivHood[j]).bcmaExpression + G.GetAgent(movdivHood[j]).mhcIExpression)) {
+                                G.GetAgent(movdivHood[j]).Tcell_Kill();
+                                this.pd_l1 += 1;
+                            }
+                            break; // Exit the inner loop as soon as a myeloma cell is encountered
+                        }
+                    }
+                }
+
+                // If a myeloma cell is encountered, break out of the outer loop immediately
+                if (encounteredMyeloma) {
+                    break;
+                }
+
+                // Movement logic - only execute if no myeloma cell was encountered
+                int moveToIndex = seekCXCL9();
+                if (G.GetAgent(moveToIndex) == null) {
+                    MoveSQ(moveToIndex);
+                }
+            }
+        }
+
+
+        if (type == supressorTcell) {
+            this.lifespan = G.boundedGaussian(40, 1, 40, 44);
+
+            if (timeStep % (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+                this.tcellAge += 1;
+            }
+            int emptyNeighbors = MapEmptyHood(MooreHood(true)); // mapping empty spots
+            if (emptyNeighbors > 0 &&  G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT)) {
+                for (int i = 0; i < emptyNeighbors; i++) {
+                    int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
+                    int chosenCell = MooreHood(true)[chosenIndex]; // Get the chosen empty cell
+                    if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
+                        BoneCell_2022May17 child = G.NewAgentSQ(chosenCell);
+                        child.type = this.type;
+                        child.tcellAge = 0;
+                        child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
+                        break;
+                    }
+                }
+            }
+
+
+            for (int run = 0; run < 6; run++) {
+
+                int[] movdivHood = MooreHood(true); // for division and movement
+                int options = MapOccupiedHood(movdivHood); // mapping occupied spots
+
+
+                // Age-related death logic
+                if (this.tcellAge >= this.lifespan) {
+                    this.Dispose();
+                    break;
+                }
+                if (this.pd_l1 >= this.pd_1) {
+                    this.Dispose();
+                    break;
+                }
+                else {
+                    for (int j = 0; j < options; j++) {
+                        if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == activeTcell && G.rn.Double() < G.boundedGaussian(.9, .1, 0, 1)) {
+                            G.GetAgent(movdivHood[j]).pd_l1 = G.GetAgent(movdivHood[j]).pd_l1+1;
+                            this. pd_l1 +=1;
+                            break; // Break out of for loop
+                        }
+                        else if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == EXHT_CELL && G.rn.Double() < G.boundedGaussian(.9, .1, 0, 1)){
+                            G.GetAgent(movdivHood[j]).pd_l1 = G.GetAgent(movdivHood[j]).pd_l1+1;
+                            this. pd_l1 +=1;
+                            break; // Break out of for loop
+
+                        }
+                    }
+
+                    // Movement logic only executes if no T cell was killed
+                    int moveToIndex = seekIFNG();
+                    if (G.GetAgent(moveToIndex) == null) {
+                        MoveSQ(moveToIndex);
+                    }
+                }
+            }
+        }
+
+        if (type == bloodVessel){
+        }
+    }
 }
