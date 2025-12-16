@@ -243,10 +243,7 @@ public class BoneGrid_2022May17 extends AgentGrid2D<BoneCell_2022May17> implemen
         // -------------------------
         String Bone_Filename = null;
         if (LOCAL) {
-            Bone_Filename = "/Users/80024703/Desktop/code/Bone/BAout_2020May5_Sim14.csv";
-            //Bone_Filename = "/Users/80024703/Desktop/SmallBone.csv";
-            //Bone_Filename = "/Users/80024703/Desktop/bone_data/day_269.csv";
-            //Bone_Filename = "/Users/80024703/Desktop/bone_data/day_394.csv";
+            Bone_Filename = "/Desktop/code/Bone/BAout_2020May5_Sim14.csv";
         } else {
             Bone_Filename = "Bone/BAout_2020May5_Sim14.csv";
         }
