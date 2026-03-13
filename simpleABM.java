@@ -97,10 +97,6 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     double CXCL9_decayRate = -.2*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE;
     double CXCL9_DiffCoef = 2700.0*(MinToHour*TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);//*(TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);
     double maxCXCL9 = (2.07e-9)/8;
-    double IFNG_productionRate = (2.04e-9*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE)/8;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE; //changed from 2.61e-10
-    double IFNG_decayRate = -0.005*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE;
-    double IFNG_DiffCoef = 2500.0*(MinToHour*TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);//*(TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);
-    double maxIFNG = (1.7e-9)/8;
 
     public static int daysPassed = 0;
     //MODEL TESTS
