@@ -27,20 +27,12 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
     public static boolean MYELOMA = true;
     public static boolean TCELL = true;
-
-    public static boolean ADAPTIVE = false;
-
-    public static boolean BIWEEKLY = true;
-
-    public static boolean CIRCULATING = false;
     public static boolean EMDR = false;
-
-    public static boolean TREATMENT_ON = false; //this is to control treatment on/off timer in MAIN
+    public static boolean initBone= true; //this is to control treatment on/off timer in MAIN
 
     //CLUSTER
     public static boolean PARAM_SWEEP = false; //use when importing parameters to loop through
     public static boolean runPar = true;
-
     public static boolean runPareShare = false;
     public static boolean HEADLESS = false; //use true with cluster
     public static boolean LOCAL = true; // use false with cluster
@@ -53,7 +45,8 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
             EXHT_CELL=RGB256(200, 50, 250),
             supressorTcell =RGB256(255, 165, 0),
             bloodVessel=RGB256(138, 3, 3),
-            naiveTcell=RGB256(100, 100, 100);
+            naiveTcell=RGB256(100, 100, 100),
+            ext_naiveTcell=RGB(100,0, 100);
 
     //SETUP
     static double MinToHour = 60.0;
@@ -76,7 +69,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     public double antigenLoss = Math.pow(10, -2);
     public double T_CELL_DIV_RATE = 1.0 / 720 * (MinToHour); // T_CELL DIVISION RATE
     public double TREG_DIV_RATE = 1.0 / 1440 * (MinToHour); // T_CELL DIVISION RATE
-    public double EXHT_CELL_DIV_RATE = 1.0 / 1440 * (MinToHour); // T_CELL DIVISION RATE
+    public double EXHT_CELL_DIV_RATE = 2*(1.0 / 1440) * (MinToHour); // T_CELL DIVISION RATE
 
     //Cytokines
     double TGFB_productionRate = 2.04e-9*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE;//2.04e-9//dts; RANKL production rate
@@ -98,20 +91,11 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     double Extra_PERFtime = 4320.0 / (MinToHour * TIMESTEP_AGENT); // 4320 min = 720 ts = 3 days
     static double maxPERF = 8.7e-10; // 1.12e-9; //1.78e-9;//1.21e-9; //6.4e-10
 
-    double Ps = PERF_basalRate / (Math.abs(PERF_decayRate) * maxPERF); // Basal PERF
-    double PERFthresh = (1.05) * PERF_basalRate / (Math.abs(PERF_decayRate) * maxPERF); // was 0.01; now 5% increase from basal
-
     //CHEMOTAXIS
-
     double CXCL9_productionRate = (2.04e-9*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE)/8;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE; //changed from 2.61e-10
     double CXCL9_decayRate = -.2*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE;
     double CXCL9_DiffCoef = 2700.0*(MinToHour*TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);//*(TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);
     double maxCXCL9 = (2.07e-9)/8;
-//    double PERF_productionRate = (2.04e-9*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE)/8;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE; //changed from 2.61e-10
-//    double PERF_decayRate = -0.005*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE;//*(TIMESTEP_AGENT)/N_TIMESTEP_PDE;
-//    double PERF_DiffCoef = 2500.0*(MinToHour*TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);//*(TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE);
-//    double maxPERF = (1.7e-9)/8;
-
     public static int daysPassed = 0;
     //MODEL TESTS
     public double MarrowArea;
@@ -119,35 +103,24 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     int count_BA = 0;
     int init_BA = 0;
     int Nts = (int) ((numSteps)/(MinToHour*TIMESTEP_AGENT));
-
     double MaxTdiff; //max relative change in TGFB
     double tmax;//=0;
     public int[] moveHood = MooreHood(true); //Have option of no movement
-
     public Rand rn;
     public PDEGrid2D TGFB;
     public PDEGrid2D CXCL9;
     public PDEGrid2D PERF;
-
     public int[] tmoveHood = MooreHood(true);
     public ArrayList<Integer> InitBoneList = new ArrayList<>();
     public ArrayList<simpleBoneCell> AllBoneList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
     public ArrayList<simpleBoneCell> LiningList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
-
     boolean [][] extraTGFB = new boolean[xDim][yDim];
     double [][] TGFBtimer = new double[xDim][yDim];
-
     boolean [][] extraPERF = new boolean[xDim][yDim];
-
     double [][] PERFtimer = new double[xDim][yDim];
-
-    double[] TGFBvals = new double[xDim*yDim];//new double[xDim*yDim];
-
-    List<Object> cellSIMindex = new ArrayList<>();
 
     //public int eOpt;
     FileIO out;
-
     FileIO clones;
 
     FileIO bones;
@@ -262,7 +235,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         //Production of TGFB
         for(int x=0;x<TGFB.xDim;x++) {
             for (int y = 0; y < TGFB.yDim; y++) {
-                TGFB.Add(x, y, TGFB_basalRate / maxTGFB);
+                //TGFB.Add(x, y, TGFB_basalRate / maxTGFB);
                 if (GetAgent(x, y) != null && GetAgent(x, y).TGFB_on == true) {
                     TGFB.Add(x, y, TGFB_productionRate / maxTGFB);
                 } else if (extraTGFB[x][y] == true && TGFBtimer[x][y] < Extra_TGFBtime && GetAgent(x, y) == null) {
@@ -403,70 +376,13 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         g.newFileIO(subfolder, "w");
 
         // Initialize model
-        g.InitBone( condition[0]); // First condition is myeloma cells
+        g.InitBone(initBone, condition[0]); // First condition is myeloma cells
 
         // List for initializing vessels
         List<Integer> vessLocations = new ArrayList<>();
 
-        double exhaustedFraction = .2;
+        double exhaustedFraction = 0.2;
 
-
-        double reducedMeanFraction = exhaustedFraction;
-        int totalTcells = condition[1];
-        int activeTcells = (int) Math.floor((1 - reducedMeanFraction) * totalTcells);
-        int activeExtcells = (int) Math.floor(totalTcells * exhaustedFraction); // remainder to keep sum exact
-
-        // treg initial conditions
-        double tregFraction = .11;
-        double tregPercent = (((0.6 * tregFraction) / 100.0) * (xDim * yDim));
-        int activeTregs = (int) Math.floor(tregPercent);
-        int maxTregs = 30;
-
-        // exhaustion parameters
-        double dailyExhaustionProb = 0.00131;
-        double dailyTcellDecreaseProb = 0.00333;
-        double dailyTregIncreasenProb = 0.000545;
-
-        // cd8 tcell initial conditions
-        double tce_reducedMeanFraction = exhaustedFraction;
-        int tce_totalTcells = condition[1];
-        int tce_activeTcells = (int) Math.floor((1 - tce_reducedMeanFraction) * tce_totalTcells);
-        int tce_activeExtcells = (int) Math.floor(tce_totalTcells * tce_reducedMeanFraction);; // remainder to keep sum exact;
-
-        // treg initial conditions
-        double tce_tregFraction = .11;
-        double tce_tregPercent = (((0.6 * tce_tregFraction) / 100.0) * (xDim * yDim));
-        int tce_activeTregs = (int) Math.floor(tce_tregPercent);
-        int tce_maxTregs = 30;
-
-        // exhaustion parameters
-        double tce_dailyExhaustionProb = 0.00131;
-        double tce_dailyTcellDecreaseProb = 0.00333;
-        double tce_dailyTregIncreasenProb = 0.000545;
-
-        // cd8 tcell initial conditions
-        double no_tce_reducedMeanFraction = exhaustedFraction;
-        int no_tce_totalTcells = (int) Math.floor(condition[1]*.20);
-        int no_tce_activeTcells = (int) Math.floor((1 - no_tce_reducedMeanFraction) * no_tce_totalTcells);
-        int no_tce_activeExtcells = (int) Math.floor(no_tce_totalTcells * no_tce_reducedMeanFraction);; // remainder to keep sum exact
-
-
-        // treg initial conditions
-        double no_tce_tregFraction = .11;
-        double no_tce_tregPercent = (((0.6 * no_tce_tregFraction) / 100.0) * (xDim * yDim));
-        int no_tce_activeTregs = (int) Math.floor(no_tce_tregPercent);
-        int no_tce_maxTregs = 10;
-
-        // exhaustion parameters
-        double no_tce_dailyExhaustionProb = 0.0;
-        double no_tce_dailyTcellDecreaseProb = 0.0;
-        double no_tce_dailyTregIncreasenProb = 0.0;
-
-        boolean initial_recruitment = false;
-        boolean initial_vessel = false;
-
-        int timestepsPerDay = 240;
-        int therapyPeriodWeeks = 1;
         // --- time loop (drop-in replacement) ---
         for (int i = 0; i < g.Nts; i++) {
             double[] Cell_Counts = g.CellCounts();
@@ -488,151 +404,16 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
                 win.TickPause(10);
             }
 
+            if (TCELL && i ==0) {
 
-            if (Cell_Counts[7] + Cell_Counts[8] + Cell_Counts[9] <= 0 && i % 240 == 0 && CIRCULATING) {
-                Random rand = new Random();
-                int j = 0; // Counter for successfully placed T-cells
-                int maxAttempts = 1000; // Prevent infinite loops
-                int attempts = 0; // Counter for total attempts
-                Collections.shuffle(vessLocations, rand);
-                int[] boundaries = g.BoundaryIs();
+                int InitTcells = 500;
 
-                while (j < maxAttempts) {
-                    attempts++;
-
-                    // Try placing near a vessel
-                    boolean placed = false;
-                    int randomVessLocation = vessLocations.get(rand.nextInt(vessLocations.size()));
-
-                    if (g.GetAgent(randomVessLocation).type == bloodVessel) {
-                        int[] movdivHood = MooreHood(true);
-                        int emptyNeighbors = g.MapEmptyHood(movdivHood, randomVessLocation);
-
-                        if (emptyNeighbors > 0) {
-                            int chosenIndex = g.rn.Int(emptyNeighbors);
-                            int chosenCell = movdivHood[chosenIndex];
-
-                            if (g.GetAgent(chosenCell) == null) {
-                                simpleBoneCell c = g.NewAgentSQ(chosenCell);
-                                c.type = MM;
-
-                                j++;
-                                placed = true;
-                            }
-                        }
-                    }
-
-                    // If placement near vessel failed, fall back to random boundary
-                    if (!placed) {
-                        int tries = 0;
-                        while (tries < boundaries.length) {
-                            int randomBoundaryIdx = rand.nextInt(boundaries.length);
-                            int candidate = boundaries[randomBoundaryIdx];
-                            if (g.GetAgent(candidate) == null) {
-                                simpleBoneCell c = g.NewAgentSQ(candidate);
-                                c.type = MM;
-
-                                j++;
-                                break;
-                            }
-                            tries++;
-                        }
-                    }
-
-                    if (attempts >= maxAttempts) {
-                        break;
-                    }
-                }
-            }
-
-
-            // compute days/weeks for scheduling (use same day-length logic as your daily recording)
-            int daysPassedCalc = (int) Math.floor(i / (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)));
-            int weeksPassed = daysPassedCalc / 7;
-
-            // Weekly therapy toggle (mirrors your commented logic)
-            boolean TCE_active_this_week = ((weeksPassed / therapyPeriodWeeks) % 2 == 0);
-
-            // Switch TCELL at start of each week (only when we cross into a new day boundary)
-            if (daysPassedCalc % 7 == 0 && i % (int)(24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)) == 0 && BIWEEKLY) {
-                reducedMeanFraction = tce_reducedMeanFraction;
-                totalTcells = tce_totalTcells;
-                activeTcells = tce_activeTcells;
-                activeExtcells = tce_activeExtcells; // remainder to keep sum exact
-
-
-                // treg initial conditions
-                tregFraction = tce_tregFraction;
-                activeTregs = tce_activeTregs;
-                maxTregs = tce_maxTregs;
-
-                // exhaustion parameters
-                dailyExhaustionProb = tce_dailyExhaustionProb;
-                dailyTcellDecreaseProb = tce_dailyTcellDecreaseProb;
-                dailyTregIncreasenProb = tce_dailyTregIncreasenProb;
-
-            }
-            else if (BIWEEKLY) {
-                reducedMeanFraction = no_tce_reducedMeanFraction;
-                totalTcells = no_tce_totalTcells;
-                activeTcells = no_tce_activeTcells;
-                activeExtcells = no_tce_activeExtcells; // remainder to keep sum exac
-
-                // treg initial conditions
-                tregFraction = no_tce_tregFraction;
-                activeTregs = no_tce_activeTregs;
-                maxTregs = no_tce_maxTregs;
-
-                // exhaustion parameters
-                dailyExhaustionProb = 0;
-                dailyTcellDecreaseProb = 0;
-                dailyTregIncreasenProb = 0;
-            }
-
-
-            if ((Cell_Counts[7] + Cell_Counts[8] + Cell_Counts[9]) < condition[0] * .25 && ADAPTIVE){
-                reducedMeanFraction = tce_reducedMeanFraction;
-                totalTcells = tce_totalTcells;
-                activeTcells = tce_activeTcells;
-                activeExtcells = tce_activeExtcells; // remainder to keep sum exact
-
-                // treg initial conditions
-                tregFraction = tce_tregFraction;
-                activeTregs = tce_activeTregs;
-                maxTregs = tce_maxTregs;
-
-                // exhaustion parameters
-                dailyExhaustionProb = tce_dailyExhaustionProb;
-                dailyTcellDecreaseProb = tce_dailyTcellDecreaseProb;
-                dailyTregIncreasenProb = tce_dailyTregIncreasenProb;
-            }
-            else if ((Cell_Counts[7] + Cell_Counts[8] + Cell_Counts[9] >= condition[0] * .25 && ADAPTIVE)){
-                reducedMeanFraction = no_tce_reducedMeanFraction;
-                totalTcells = no_tce_totalTcells;
-                activeTcells = no_tce_activeTcells;
-                activeExtcells = no_tce_activeExtcells; // remainder to keep sum exact
-
-                // treg initial conditions
-                tregFraction = no_tce_tregFraction;
-                activeTregs = no_tce_activeTregs;
-                maxTregs = no_tce_maxTregs;
-
-                // exhaustion parameters
-                dailyExhaustionProb = 0;
-                dailyTcellDecreaseProb = 0;
-                dailyTregIncreasenProb = 0;
-            }
-
-            if (TCELL) {
-
-                int InitTcells = 250;
-
-                if ( (Cell_Counts[10]+Cell_Counts[11]+Cell_Counts[12]+Cell_Counts[13]) < InitTcells){
-                    InitTcells = 250;
-                }
-                else{
-                    InitTcells = 10;
-                }
+//                if ( (Cell_Counts[10]+Cell_Counts[11]+Cell_Counts[12]+Cell_Counts[13]) < InitTcells){
+//                    InitTcells = 250;
+//                }
+//                else{
+//                    InitTcells = 10;
+//                }
                 int j = 0;
 
                 int maxAttempts = 100000;
@@ -652,15 +433,20 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
                         simpleBoneCell c = g.NewAgentSQ(chosenCell);
 
-                        if (g.rn.Double() < reducedMeanFraction) {
+                        if (g.rn.Double() < exhaustedFraction) {
                             c.type = EXHT_CELL;
-                        } else if (g.rn.Double() < .10 && i ==0){
+                            c.pd_l1 = g.boundedGaussian(20, 1, 1, 20);
+                            c.lifespan = g.boundedGaussian(30, 1, 30, 34);
+                        } else if (g.rn.Double() < .010){
                             c.type = supressorTcell;
+                            c.pd_l1 = g.boundedGaussian(20, 1, 1, 20);
+                            c.lifespan = g.boundedGaussian(30, 1, 30, 34);
                         } else{
                             c.type = naiveTcell;
+                            c.pd_l1 = g.boundedGaussian(20, 1, 1, 20);
+                            c.lifespan = g.boundedGaussian(30, 1, 30, 34);
                         }
-                        c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
-                        c.lifespan = g.boundedGaussian(30, 1, 30, 34);
+
 
                         j++;
                         continue;
@@ -674,15 +460,19 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
                         simpleBoneCell c = g.NewAgentSQ(chosenCell);
 
-                        if (g.rn.Double() < reducedMeanFraction) {
+                        if (g.rn.Double() < exhaustedFraction) {
                             c.type = EXHT_CELL;
-                        } else if (g.rn.Double() < .10 && i ==0) {
+                            c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
+                            c.lifespan = g.boundedGaussian(30, 1, 30, 34);
+                        } else if (g.rn.Double() < .010 && i ==0) {
                             c.type = supressorTcell;
+                            c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
+                            c.lifespan = g.boundedGaussian(30, 1, 30, 34);
                         } else{
                             c.type = naiveTcell;
+                            c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
+                            c.lifespan = g.boundedGaussian(30, 1, 30, 34);
                         }
-                        c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
-                        c.lifespan = g.boundedGaussian(30, 1, 30, 34);
 
                         j++;
                     }
@@ -798,30 +588,30 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         simpleBoneCell cell = GetAgent(x, y);
         return (cell != null && cell.type == LINING);
     }
-    public void InitBone(int initMyeloma) {
+    public void InitBone(boolean initBone ,int initMyeloma) {
 
-
-//  FOR IRREGULAR BONE
-        int xinit, yinit;
+        if (initBone){
+            //  FOR IRREGULAR BONE
+            int xinit, yinit;
         ArrayList<String> input_data = InitialBone.Read();
-        String[] split_input_data =input_data.get(0).split(",");
+        String[] split_input_data = input_data.get(0).split(",");
 
         //Place bone
-        for (int index=1; index<split_input_data.length; index++){
-            NewAgentSQ(Integer.parseInt(split_input_data[index])).type=BONE;
+        for (int index = 1; index < split_input_data.length; index++) {
+            NewAgentSQ(Integer.parseInt(split_input_data[index])).type = BONE;
             GetAgent(Integer.parseInt(split_input_data[index])).Init();
             InitBoneList.add(Integer.parseInt(split_input_data[index]));
             AllBoneList.add(GetAgent(Integer.parseInt(split_input_data[index])));
         }
-        for (int index=1; index<split_input_data.length; index++){
-            if(GetAgent(Integer.parseInt(split_input_data[index])).MarrowInHood()==true){
-                GetAgent(Integer.parseInt(split_input_data[index])).type=LINING;
+        for (int index = 1; index < split_input_data.length; index++) {
+            if (GetAgent(Integer.parseInt(split_input_data[index])).MarrowInHood() == true) {
+                GetAgent(Integer.parseInt(split_input_data[index])).type = LINING;
                 GetAgent(Integer.parseInt(split_input_data[index])).liningAge = TURNOVER_TIME;
                 LiningList.add(GetAgent(Integer.parseInt(split_input_data[index])));
             }
         }
-        init_BA=InitBoneList.size();
-        MarrowArea = (xDim*yDim)-init_BA;//(xDimBone*yDimBone); //0.12 Bone, 0.88 Marrow
+        init_BA = InitBoneList.size();
+        MarrowArea = (xDim * yDim) - init_BA;//(xDimBone*yDimBone); //0.12 Bone, 0.88 Marrow
         int myelomaCellsToPlace = initMyeloma;
         int placedMyelomaCells = 0;
         int boneProximityDistance = 10; // Maximum initial distance from bone
@@ -886,6 +676,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
             placedMyelomaCells++;
         }
+    }
 
     }
 
@@ -1355,7 +1146,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 //                                                     CELL CLASS                                                     //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
+class simpleBoneCell extends AgentSQ2D<simpleBoneGrid> {
 
     ///////////////
     //CELL FIELDS//
@@ -1570,7 +1361,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
         return moveToIndex;
     }
 
-    public int seekPERF() {
+    public int seekPerf() {
         int neighbors = MapHood(G.tmoveHood); // includes self
         double[] CXCL9_levels = new double[9]; // stores CXCL9 levels at the 8 directions and the center
 
@@ -1591,28 +1382,28 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                 double P = 0;
                 switch (i) {
                     case 1: // right
-                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[1] - CXCL9_levels[2]);
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[1] - CXCL9_levels[2]);
                         break;
                     case 2: // left
-                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[1] - CXCL9_levels[2]);
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[1] - CXCL9_levels[2]);
                         break;
                     case 3: // up
-                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[3] - CXCL9_levels[4]);
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[3] - CXCL9_levels[4]);
                         break;
                     case 4: // down
-                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[3] - CXCL9_levels[4]);
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[3] - CXCL9_levels[4]);
                         break;
                     case 5: // top-right
-                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[5] - CXCL9_levels[6]);
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[5] - CXCL9_levels[6]);
                         break;
                     case 6: // top-left
-                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[5] - CXCL9_levels[6]);
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[5] - CXCL9_levels[6]);
                         break;
                     case 7: // bottom-right
-                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[7] - CXCL9_levels[8]);
+                        P = G.Tcell_DiffCoef + (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[7] - CXCL9_levels[8]);
                         break;
                     case 8: // bottom-left
-                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxPERF) / 8 * (CXCL9_levels[7] - CXCL9_levels[8]);
+                        P = G.Tcell_DiffCoef - (G.Tcell_TaxisCoeff * G.maxCXCL9) / 8 * (CXCL9_levels[7] - CXCL9_levels[8]);
                         break;
                 }
 
@@ -1698,7 +1489,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
 
             int[] Hood = MooreHood(true); // For division and movement
             int options = MapOccupiedHood(Hood); // Mapping occupied spots
-            double x = ProbScale(1e-5, TIMESTEP_AGENT);
+            double x = ProbScale(5.5e-4, TIMESTEP_AGENT);
             for (int j = 0; j < options; j++) {
                 if (G.GetAgent(Hood[j]) != null && (G.GetAgent(Hood[j]).type == BONE || G.GetAgent(Hood[j]).type == LINING)) {
                     if(G.rn.Double() < x){
@@ -1706,13 +1497,12 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                         TGFB_on=true;
                         G.GetAgent(Hood[j]).Dispose();
                     }
-                    else{
-                        TGFB_on = false;
-                    }
+//                    else{
+//                        TGFB_on = false;
+//                    }
                 }
             }
             if (rn_BirthDeath < ProbScale(pdiv, TIMESTEP_AGENT)) {
-
                 //////////////
                 //MM divides//
                 //////////////
@@ -1763,127 +1553,61 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
         }
 
         if (type == naiveTcell) {
-
-            if(G.TGFB.Get(Isq()) >= G.TGFBthresh){
-                this.pd_1+=1;
-            }
-            this.myeloma_bound = false;
-            int[] hood = MooreHood(true);
             // Increment T cell age every 24 hours
             if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
                 this.tcellAge += 1;
             }
-            // Age-related death logic
-            if (this.tcellAge >= this.lifespan) {
-                int emptyNeighbors = MapEmptyHood(hood);
-
-                if (emptyNeighbors > 0 &&
-                        G.rn.Double() < ProbScale(1/1440 *MinToHour, TIMESTEP_AGENT)) {
-
-                    int chosenCell = hood[G.rn.Int(emptyNeighbors)];
-
-                    simpleBoneCell child = G.NewAgentSQ(chosenCell);
-                    child.type = this.type;
-                    child.tcellAge = 0;
-                    child.lifespan = G.boundedGaussian(30, 1, 30, 34);
-                    child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
-                }
-            }
-            int emptyNeighbors = MapEmptyHood(hood);
-
-            if (emptyNeighbors > 0 &&
-                    G.rn.Double() < ProbScale(1/1440 * MinToHour, TIMESTEP_AGENT)) {
-
-                int chosenCell = hood[G.rn.Int(emptyNeighbors)];
-
-                simpleBoneCell child = G.NewAgentSQ(chosenCell);
-                child.type = naiveTcell;
-                child.tcellAge = 0;
-                child.lifespan = G.boundedGaussian(30, 1, 30, 34);
-                child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
-            }
-            for (int run = 0; run < 3; run++) {
-
-                int[] movdivHood = MooreHood(true); // For division and movement
-                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
-
-                // Killing logic
-                for (int j = 0; j < options; j++) {
-                    if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == MM && G.GetAgent(movdivHood[j]).bcmaExpression > 0) {
-                        //G.GetAgent(movdivHood[j]).Tcell_Kill();
-                        this.pd_l1 = G.boundedGaussian(10, 1, 1, 20);
-                        this.type = activeTcell;
-                    }
-                }
-
-                // Movement logic - only execute if no myeloma cell was encountered
-                int moveToIndex = seekCXCL9();
-                if (G.GetAgent(moveToIndex) == null) {
-                    MoveSQ(moveToIndex);
-                }
-            }
-        }
-
-        if (type == activeTcell) {
-
-            if(G.TGFB.Get(Isq()) >= G.TGFBthresh){
-                this.pd_1+=1;
-            }
-
-            this.myeloma_bound = false;
-
-
-            int[] hood = MooreHood(true);
-            // Age update every 24 hours
-            if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
-                this.tcellAge += 1;
-            }
-
-            // Death from aging
+            // Age-related death
             if (this.tcellAge >= this.lifespan) {
                 this.Dispose();
                 return;
             }
-
+            if(G.TGFB.Get(Isq()) >= G.TGFBthresh){
+                this.pd_1+=1;
+            }
             // Exhaustion check
             if (this.pd_1 > pd_l1) {
-                this.type = EXHT_CELL;
+                this.type = ext_naiveTcell;
                 return;
             }
-
-            // -----------------------------
-            // Proliferation
-            // -----------------------------
+            int[] hood = MooreHood(true);
             int emptyNeighbors = MapEmptyHood(hood);
+            if (emptyNeighbors > 0 && G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT)) {
+                if (G.rn.Double() < .01){
+                    int chosenCell = hood[G.rn.Int(emptyNeighbors)];
+                    simpleBoneCell child = G.NewAgentSQ(chosenCell);
+                    child.type = naiveTcell;
+                    child.tcellAge = 0;
+                    child.lifespan = G.boundedGaussian(30, 1, 30, 34);
+                    child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
+                }  else {
+                    int chosenCell = hood[G.rn.Int(emptyNeighbors)];
+                    simpleBoneCell child = G.NewAgentSQ(chosenCell);
+                    child.type = activeTcell;
+                    child.tcellAge = 0;
+                    child.lifespan = G.boundedGaussian(1, 1, 1, 2);
+                    child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
 
-            if (emptyNeighbors > 0 &&
-                    G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT) ) {
-
-                int chosenCell = hood[G.rn.Int(emptyNeighbors)];
-
-                simpleBoneCell child = G.NewAgentSQ(chosenCell);
-                child.type = activeTcell;
-                child.tcellAge = 0;
-                child.lifespan = G.boundedGaussian(30, 1, 30, 34);
-                child.pd_l1 = G.boundedGaussian(20, 1, 10, 22);
+                }
             }
-
             for (int run = 0; run < 3; run++) {
+
                 // -----------------------------
                 // Check neighbors for myeloma
                 // -----------------------------
-                int occupied = MapOccupiedHood(hood);
+                int[] occHood = MooreHood(false);
+                int occupied = MapOccupiedHood(occHood);
+
                 simpleBoneCell target = null;
 
                 for (int j = 0; j < occupied; j++) {
-
-                    simpleBoneCell neighbor = G.GetAgent(hood[j]);
-
+                    simpleBoneCell neighbor = G.GetAgent(occHood[j]);
                     if (neighbor.type == MM && neighbor.bcmaExpression > 0) {
                         target = neighbor;
                         break;
                     }
                 }
+
                 // -----------------------------
                 // Tumor interaction
                 // -----------------------------
@@ -1896,76 +1620,75 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                     }
                     if (G.rn.Double() < kill_prob) {
                         target.Tcell_Kill();
-                        if (G.rn.Double() < 0.25) {
-                            this.pd_1 += 1;
-                        }
-                        //break;
+                        this.pd_1 += 1;
                     }
-                    else{
-                        PERF_on = false;
-                    }
+                }else {
+                    PERF_on = false;
                 }
-                // -----------------------------
-                // Movement
-                // -----------------------------
-                int moveTo = seekCXCL9();
-                if (moveTo >= 0 && G.GetAgent(moveTo) == null) {
-                    MoveSQ(moveTo);
+
+                int[] movdivHood = MooreHood(true); // For division and movement
+                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+                // Killing logic
+                for (int j = 0; j < options; j++) {
+                    if (G.GetAgent(movdivHood[j]).type !=activeTcell
+                            || G.GetAgent(movdivHood[j]).type !=naiveTcell
+                            || G.GetAgent(movdivHood[j]).type !=EXHT_CELL) {
+                        // Movement logic - only execute if no myeloma cell was encountered
+                        int moveToIndex = seekCXCL9();
+                        MoveSQ(moveToIndex);
+                    }
                 }
             }
         }
 
-        if (type == EXHT_CELL) {
-            double EXH_RECOG_NOISE = 0.5;
-
-            int[] hood = MooreHood(true);
-
-            // Age update every 24 hours
+        if (type == ext_naiveTcell) {
+            // Increment T cell age every 24 hours
             if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
                 this.tcellAge += 1;
             }
-
             // Age-related death
             if (this.tcellAge >= this.lifespan) {
                 this.Dispose();
-
                 return;
             }
-
-            if (this.pd_1 >= this.pd_l1) {
-                this.Dispose();
-                return;
+            if(G.TGFB.Get(Isq()) >= G.TGFBthresh){
+                this.pd_1+=1;
             }
 
-            // -----------------------------
-            // Proliferation (reduced)
-            // -----------------------------
+            int[] hood = MooreHood(true);
             int emptyNeighbors = MapEmptyHood(hood);
+            if (emptyNeighbors > 0 && G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT)) {
+                if (G.rn.Double() < .01){
+                    int chosenCell = hood[G.rn.Int(emptyNeighbors)];
+                    simpleBoneCell child = G.NewAgentSQ(chosenCell);
+                    child.type = ext_naiveTcell;
+                    child.tcellAge = 0;
+                    child.lifespan = G.boundedGaussian(30, 1, 30, 34);
+                    child.pd_l1 = child.pd_1 = G.boundedGaussian(20, 1, 10, 20);
+                }  else {
+                    int chosenCell = hood[G.rn.Int(emptyNeighbors)];
+                    simpleBoneCell child = G.NewAgentSQ(chosenCell);
+                    child.type = EXHT_CELL;
+                    child.tcellAge = 0;
+                    child.lifespan = G.boundedGaussian(1, 1, 1, 2);
+                    child.pd_l1 = child.pd_1 = G.boundedGaussian(20, 1, 10, 20);
 
-            if (emptyNeighbors > 0 &&
-                    G.rn.Double() < ProbScale(G.EXHT_CELL_DIV_RATE, TIMESTEP_AGENT)) {
-
-                int chosenCell = hood[G.rn.Int(emptyNeighbors)];
-
-                simpleBoneCell child = G.NewAgentSQ(chosenCell);
-                child.type = EXHT_CELL;
-                child.tcellAge = 0;
-                child.lifespan = G.boundedGaussian(10, 1, 10, 34);
-                child.pd_l1 = child.pd_1 = G.boundedGaussian(10, 1, 10, 20);
+                }
             }
             for (int run = 0; run < 3; run++) {
+
                 // -----------------------------
-                // Check neighbors for tumor
+                // Check neighbors for myeloma
                 // -----------------------------
-                int occupied = MapOccupiedHood(hood);
+                int[] occHood = MooreHood(false);
+                int occupied = MapOccupiedHood(occHood);
+
                 simpleBoneCell target = null;
 
                 for (int j = 0; j < occupied; j++) {
-
-                    simpleBoneCell neighbor = G.GetAgent(hood[j]);
+                    simpleBoneCell neighbor = G.GetAgent(occHood[j]);
 
                     if (neighbor.type == MM && neighbor.bcmaExpression > 0) {
-
                         target = neighbor;
                         break;
                     }
@@ -1975,47 +1698,229 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                 // Tumor interaction
                 // -----------------------------
                 if (target != null) {
-                    // Recognition noise
-                    if (G.rn.Double() >= EXH_RECOG_NOISE) {
-
-                        double killProb = extp_kill;
-
-                        if (G.rn.Double() < killProb) {
-                            target.Tcell_Kill();
-                            this.pd_1 += 1;
-                            PERF_on = true;
-                        }
+                    PERF_on = true;
+                    double kill_prob = 0;
+                    if (target.mhcIExpression > 0) {
+                        kill_prob = extp_kill + (extp_kill * 0.1);
                     }
-
+                    if (G.rn.Double() < kill_prob) {
+                        target.Tcell_Kill();
+                        this.pd_1 += 1;
+                    }
+                }else {
+                    PERF_on = false;
                 }
-
-                // -----------------------------
-                // Movement (dysfunctional chemotaxis)
-                // -----------------------------
-                int moveTo = noisyseekCXCL9();
-
-                if (moveTo >= 0 && G.GetAgent(moveTo) == null) {
-                    MoveSQ(moveTo);
+                int[] movdivHood = MooreHood(true); // For division and movement
+                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+                // Killing logic
+                for (int j = 0; j < options; j++) {
+                    if (G.GetAgent(movdivHood[j]).type !=activeTcell
+                            || G.GetAgent(movdivHood[j]).type !=naiveTcell
+                            || G.GetAgent(movdivHood[j]).type !=EXHT_CELL) {
+                        // Movement logic - only execute if no myeloma cell was encountered
+                        int moveToIndex = seekCXCL9();
+                        MoveSQ(moveToIndex);
+                    }
                 }
             }
-
         }
 
-        if (type == supressorTcell) {
-
-            int[] hood = MooreHood(true);
-
+        if (type == activeTcell) {
             // Age update every 24 hours
-            if (timeStep % (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+            if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
                 this.tcellAge += 1;
             }
-
             // Age-related death
             if (this.tcellAge >= this.lifespan) {
                 this.Dispose();
                 return;
             }
+            if(G.TGFB.Get(Isq()) >= G.TGFBthresh){
+                this.pd_1+=1;
+            }
+            // Exhaustion check
+            if (this.pd_1 > pd_l1) {
+                this.type = EXHT_CELL;
+                return;
+            }
 
+            // -----------------------------
+            // Proliferation (ONLY EMPTY SPACES)
+            // -----------------------------
+            int[] hood = MooreHood(false); // exclude center
+            int empty = MapEmptyHood(hood);
+
+            if (empty > 0 && G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT)) {
+                int chosen = hood[G.rn.Int(empty)];
+
+                simpleBoneCell child = G.NewAgentSQ(chosen);
+                child.type = activeTcell;
+                child.tcellAge = 0;
+                child.lifespan = G.boundedGaussian(1, 1, 1, 2);
+                child.pd_l1 = G.boundedGaussian(20, 1, 10, 22);
+            }
+
+            // -----------------------------
+            // Behavior loop
+            // -----------------------------
+            for (int run = 0; run < 3; run++) {
+
+                // -----------------------------
+                // Check neighbors for myeloma
+                // -----------------------------
+                int[] occHood = MooreHood(false);
+                int occupied = MapOccupiedHood(occHood);
+
+                simpleBoneCell target = null;
+
+                for (int j = 0; j < occupied; j++) {
+                    simpleBoneCell neighbor = G.GetAgent(occHood[j]);
+                    if (neighbor.type == MM && neighbor.bcmaExpression > 0) {
+                        target = neighbor;
+                        break;
+                    }
+                }
+
+                // -----------------------------
+                // Tumor interaction
+                // -----------------------------
+                if (target != null) {
+                    PERF_on = true;
+                    double kill_prob = 0;
+                    if (target.mhcIExpression > 0) {
+                        kill_prob = p_kill + (p_kill * 0.1);
+                    }
+                    if (G.rn.Double() < kill_prob) {
+                        target.Tcell_Kill();
+                        this.pd_1 += 1;
+                    }
+                }else {
+                    PERF_on = false;
+                }
+
+                // -----------------------------
+                // Movement (BLOCK T CELLS)
+                // -----------------------------
+                int[] movdivHood = MooreHood(true); // For division and movement
+                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+                // Killing logic
+                for (int j = 0; j < options; j++) {
+                    if (G.GetAgent(movdivHood[j]).type !=activeTcell
+                            || G.GetAgent(movdivHood[j]).type !=naiveTcell
+                            || G.GetAgent(movdivHood[j]).type !=EXHT_CELL) {
+                        // Movement logic - only execute if no myeloma cell was encountered
+                        int moveToIndex = seekCXCL9();
+                        MoveSQ(moveToIndex);
+                        }
+                    }
+            }
+        }
+
+        if (type == EXHT_CELL) {
+            // Age update every 24 hours
+            if (timeStep % (24 * 60 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+                this.tcellAge += 1;
+            }
+            // Age-related death
+            if (this.tcellAge >= this.lifespan) {
+                this.Dispose();
+                return;
+            }
+            if(G.TGFB.Get(Isq()) >= G.TGFBthresh){
+                this.pd_1+=1;
+            }
+            // Exhaustion check
+            if (this.pd_1 > pd_l1) {
+                this.Dispose();
+                return;
+            }
+
+            // -----------------------------
+            // Proliferation (ONLY EMPTY SPACES)
+            // -----------------------------
+            int[] hood = MooreHood(false); // exclude center
+            int empty = MapEmptyHood(hood);
+
+            if (empty > 0 && G.rn.Double() < ProbScale(G.EXHT_CELL_DIV_RATE, TIMESTEP_AGENT)) {
+                int chosen = hood[G.rn.Int(empty)];
+                simpleBoneCell child = G.NewAgentSQ(chosen);
+                child.type = EXHT_CELL;
+                child.tcellAge = 0;
+                child.lifespan = G.boundedGaussian(1, 1, 1, 2);
+                child.pd_l1 = G.boundedGaussian(20, 1, 10, 22);
+            }
+
+            // -----------------------------
+            // Behavior loop
+            // -----------------------------
+            for (int run = 0; run < 3; run++) {
+
+                // -----------------------------
+                // Check neighbors for myeloma
+                // -----------------------------
+                int[] occHood = MooreHood(false);
+                int occupied = MapOccupiedHood(occHood);
+
+                simpleBoneCell target = null;
+
+                for (int j = 0; j < occupied; j++) {
+                    simpleBoneCell neighbor = G.GetAgent(occHood[j]);
+
+                    if (neighbor.type == MM && neighbor.bcmaExpression > 0) {
+                        target = neighbor;
+                        break;
+                    }
+                }
+
+                // -----------------------------
+                // Tumor interaction
+                // -----------------------------
+                if (target != null) {
+                    this.myeloma_bound = true;
+                    PERF_on = true;
+
+                    double kill_prob = 0;
+                    if (target.mhcIExpression > 0) {
+                        kill_prob = extp_kill + (extp_kill * 0.1);
+                    }
+
+                    if (G.rn.Double() < kill_prob) {
+                        target.Tcell_Kill();
+                        this.pd_1 += 1;
+                    }
+                }else {
+                    PERF_on = false;
+                }
+
+                // -----------------------------
+                // Movement (BLOCK T CELLS)
+                // -----------------------------
+                int[] movdivHood = MooreHood(true); // For division and movement
+                int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+                // Killing logic
+                for (int j = 0; j < options; j++) {
+                    if (G.GetAgent(movdivHood[j]).type !=activeTcell
+                            || G.GetAgent(movdivHood[j]).type !=naiveTcell
+                            || G.GetAgent(movdivHood[j]).type !=EXHT_CELL) {
+                        // Movement logic - only execute if no myeloma cell was encountered
+                        int moveToIndex = noisyseekCXCL9();
+                        MoveSQ(moveToIndex);
+                    }
+                }
+            }
+        }
+
+        if (type == supressorTcell) {
+            int[] hood = MooreHood(true);
+            // Age update every 24 hours
+            if (timeStep % (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)) == 0) {
+                this.tcellAge += 1;
+            }
+            // Age-related death
+            if (this.tcellAge >= this.lifespan) {
+                this.Dispose();
+                return;
+            }
             // Self exhaustion
 //            if (this.pd_1 >= this.pd_l1) {
 //                this.Dispose();
@@ -2035,46 +1940,39 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                 if (neighbor.type == activeTcell ||
                         neighbor.type == EXHT_CELL ||
                         neighbor.type == naiveTcell) {
-
                     target = neighbor;
-                    if (neighbor.type== MM){
-                        divCheck = false;
-                    }
                     break;
                 }
             }
-
             // -----------------------------
             // Interaction with nearby T cells
             // -----------------------------
             if (target != null) {
                 TGFB_on = true;
-
             }
             else {
                 TGFB_on = false;
             }
             // Proliferation near T cells
-            int emptyNeighbors = MapEmptyHood(hood);
-            //&& Cell_Counts[12] <= 30
-            if (emptyNeighbors > 0 && G.rn.Double() < ProbScale(G.T_CELL_DIV_RATE, TIMESTEP_AGENT)&& (Cell_Counts[12]) <= 100) {
-                int chosenCell = hood[G.rn.Int(emptyNeighbors)];
+            int nNeighbors = MapHood(hood);
+            if (nNeighbors > 0 && G.rn.Double() < ProbScale(G.TREG_DIV_RATE, TIMESTEP_AGENT)&& (Cell_Counts[12]) <= 100) {
+                int chosenCell = hood[G.rn.Int(nNeighbors)];
+
                 simpleBoneCell child = G.NewAgentSQ(chosenCell);
-                child.type = supressorTcell;
+                child.type = EXHT_CELL;
                 child.tcellAge = 0;
-                child.pd_l1 = G.boundedGaussian(10, 1, 10, 20);
+                child.lifespan = G.boundedGaussian(30, 1, 30, 34);
+                child.pd_l1 = G.boundedGaussian(20, 1, 10, 22);
             }
-
-            if ((Cell_Counts[7] + Cell_Counts[8] + Cell_Counts[9]) <= 1500){
-                int moveToIndex = seekPERF();
-                if (G.GetAgent(moveToIndex) == null) {
-                    MoveSQ(moveToIndex);
-                }
-
-            }
-            else{
-                int moveToIndex = seekPERF();
-                if (G.GetAgent(moveToIndex) == null) {
+            int[] movdivHood = MooreHood(true); // For division and movement
+            int options = MapOccupiedHood(movdivHood); // Mapping occupied spots
+            // Killing logic
+            for (int j = 0; j < options; j++) {
+                if (G.GetAgent(movdivHood[j]).type !=activeTcell
+                        || G.GetAgent(movdivHood[j]).type !=naiveTcell
+                        || G.GetAgent(movdivHood[j]).type !=EXHT_CELL) {
+                    // Movement logic - only execute if no myeloma cell was encountered
+                    int moveToIndex = seekPerf();
                     MoveSQ(moveToIndex);
                 }
             }
