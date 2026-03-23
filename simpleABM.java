@@ -35,7 +35,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     public static boolean runPareShare = false;
     public static boolean HEADLESS = true; //use true with cluster
     public static boolean LOCAL = true; // use false with cluster
-    public static double numSteps = 2*365.0*24.0*60.0; // years the model will run
+    public static double numSteps = 1*365.0*24.0*60.0; // years the model will run
     public static int numSims = 10; //Number of Simulations
     public final static int BONE = RGB256(255,255,250), MSC = RGB256(135,206,250),
             pOB = RGB256(100,149,237), aOB = BLUE, pOC = RGB256(230,100,130),
@@ -598,90 +598,90 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         if (initBone){
             //  FOR IRREGULAR BONE
             int xinit, yinit;
-        ArrayList<String> input_data = InitialBone.Read();
-        String[] split_input_data = input_data.get(0).split(",");
+            ArrayList<String> input_data = InitialBone.Read();
+            String[] split_input_data = input_data.get(0).split(",");
 
-        //Place bone
-        for (int index = 1; index < split_input_data.length; index++) {
-            NewAgentSQ(Integer.parseInt(split_input_data[index])).type = BONE;
-            GetAgent(Integer.parseInt(split_input_data[index])).Init();
-            InitBoneList.add(Integer.parseInt(split_input_data[index]));
-            AllBoneList.add(GetAgent(Integer.parseInt(split_input_data[index])));
-        }
-        for (int index = 1; index < split_input_data.length; index++) {
-            if (GetAgent(Integer.parseInt(split_input_data[index])).MarrowInHood() == true) {
-                GetAgent(Integer.parseInt(split_input_data[index])).type = LINING;
-                GetAgent(Integer.parseInt(split_input_data[index])).liningAge = TURNOVER_TIME;
-                LiningList.add(GetAgent(Integer.parseInt(split_input_data[index])));
+            //Place bone
+            for (int index = 1; index < split_input_data.length; index++) {
+                NewAgentSQ(Integer.parseInt(split_input_data[index])).type = BONE;
+                GetAgent(Integer.parseInt(split_input_data[index])).Init();
+                InitBoneList.add(Integer.parseInt(split_input_data[index]));
+                AllBoneList.add(GetAgent(Integer.parseInt(split_input_data[index])));
             }
-        }
-        init_BA = InitBoneList.size();
-        MarrowArea = (xDim * yDim) - init_BA;//(xDimBone*yDimBone); //0.12 Bone, 0.88 Marrow
-        int myelomaCellsToPlace = initMyeloma;
-        int placedMyelomaCells = 0;
-        int boneProximityDistance = 10; // Maximum initial distance from bone
-        double bcmaNegfraction = 0.0;
-        int nextCloneID = 1;
-
-
-        int attempts = 0;
-        int maxAttempts = 100000; // safety to prevent infinite loop
-
-        while (placedMyelomaCells < myelomaCellsToPlace && attempts < maxAttempts) {
-
-            int x = rn.Int(xDim);
-            int y = rn.Int(yDim);
-
-            // Skip if occupied
-            if (PopAt(x, y) != 0) {
-                attempts++;
-                continue;
+            for (int index = 1; index < split_input_data.length; index++) {
+                if (GetAgent(Integer.parseInt(split_input_data[index])).MarrowInHood() == true) {
+                    GetAgent(Integer.parseInt(split_input_data[index])).type = LINING;
+                    GetAgent(Integer.parseInt(split_input_data[index])).liningAge = TURNOVER_TIME;
+                    LiningList.add(GetAgent(Integer.parseInt(split_input_data[index])));
+                }
             }
+            init_BA = InitBoneList.size();
+            MarrowArea = (xDim * yDim) - init_BA;//(xDimBone*yDimBone); //0.12 Bone, 0.88 Marrow
+            int myelomaCellsToPlace = initMyeloma;
+            int placedMyelomaCells = 0;
+            int boneProximityDistance = 10; // Maximum initial distance from bone
+            double bcmaNegfraction = 0.0;
+            int nextCloneID = 1;
 
-            // Check if near bone
-            boolean isNearBone = false;
 
-            for (int xi = Math.max(0, x - boneProximityDistance);
-                 xi <= Math.min(xDim - 1, x + boneProximityDistance); xi++) {
+            int attempts = 0;
+            int maxAttempts = 100000; // safety to prevent infinite loop
 
-                for (int yi = Math.max(0, y - boneProximityDistance);
-                     yi <= Math.min(yDim - 1, y + boneProximityDistance); yi++) {
+            while (placedMyelomaCells < myelomaCellsToPlace && attempts < maxAttempts) {
 
-                    if (GetAgent(xi, yi) != null && GetAgent(xi, yi).type == BONE) {
+                int x = rn.Int(xDim);
+                int y = rn.Int(yDim);
 
-                        double distance = Math.sqrt(
-                                Math.pow(xi - x, 2) +
-                                        Math.pow(yi - y, 2));
+                // Skip if occupied
+                if (PopAt(x, y) != 0) {
+                    attempts++;
+                    continue;
+                }
 
-                        if (distance <= boneProximityDistance) {
-                            isNearBone = true;
-                            break;
+                // Check if near bone
+                boolean isNearBone = false;
+
+                for (int xi = Math.max(0, x - boneProximityDistance);
+                     xi <= Math.min(xDim - 1, x + boneProximityDistance); xi++) {
+
+                    for (int yi = Math.max(0, y - boneProximityDistance);
+                         yi <= Math.min(yDim - 1, y + boneProximityDistance); yi++) {
+
+                        if (GetAgent(xi, yi) != null && GetAgent(xi, yi).type == BONE) {
+
+                            double distance = Math.sqrt(
+                                    Math.pow(xi - x, 2) +
+                                            Math.pow(yi - y, 2));
+
+                            if (distance <= boneProximityDistance) {
+                                isNearBone = true;
+                                break;
+                            }
                         }
                     }
+                    if (isNearBone) break;
                 }
-                if (isNearBone) break;
+
+                if (!isNearBone) {
+                    attempts++;
+                    continue;
+                }
+
+                // Place myeloma cell
+                NewAgentSQ(x, y).type = MM;
+                GetAgent(x, y).bcmaExpression = 1;
+                GetAgent(x, y).mhcIExpression = 1;
+                GetAgent(x, y).cloneID = nextCloneID++;
+                GetAgent(x, y).cellID = GetAgent(x, y).cloneID;
+
+                if (rn.Double() < bcmaNegfraction) {
+                    GetAgent(x, y).bcmaLoss = true;
+                    GetAgent(x, y).bcmaExpression = rn.Double();
+                }
+
+                placedMyelomaCells++;
             }
-
-            if (!isNearBone) {
-                attempts++;
-                continue;
-            }
-
-            // Place myeloma cell
-            NewAgentSQ(x, y).type = MM;
-            GetAgent(x, y).bcmaExpression = 1;
-            GetAgent(x, y).mhcIExpression = 1;
-            GetAgent(x, y).cloneID = nextCloneID++;
-            GetAgent(x, y).cellID = GetAgent(x, y).cloneID;
-
-            if (rn.Double() < bcmaNegfraction) {
-                GetAgent(x, y).bcmaLoss = true;
-                GetAgent(x, y).bcmaExpression = rn.Double();
-            }
-
-            placedMyelomaCells++;
         }
-    }
 
     }
 
@@ -919,6 +919,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         }
         //population of one timestep per line
         writeHere.Write(time+",");
+        writeHere.WriteDelimit(cts,",");
         writeHere.Write("\n");
     }
     public void RecordClones(FileIO writeHere,int time){
@@ -1624,9 +1625,9 @@ class simpleBoneCell extends AgentSQ2D<simpleBoneGrid> {
                 for (int j = 0; j < options; j++) {
                     if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == MM && G.GetAgent(movdivHood[j]).bcmaExpression > 0) {
                         if (G.rn.Double() < p_kill){
-                        G.GetAgent(movdivHood[j]).Tcell_Kill();
-                        this.pd_l1 = G.boundedGaussian(10, 1, 1, 20);
-                        this.type = activeTcell;}
+                            G.GetAgent(movdivHood[j]).Tcell_Kill();
+                            this.pd_l1 = G.boundedGaussian(10, 1, 1, 20);
+                            this.type = activeTcell;}
                     }
                 }
 
