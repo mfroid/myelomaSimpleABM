@@ -6,10 +6,11 @@ import HAL.Rand;
 import HAL.Tools.FileIO;
 import java.io.File;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.*;;
 import static simpleMyelomaABM.simpleBoneGrid.*;
 import static HAL.Util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                     GRID CLASS                                                     //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -32,7 +33,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     //CLUSTER
     public static boolean PARAM_SWEEP = false; //use when importing parameters to loop through
     public static boolean runPar = true;
-    public static boolean HEADLESS = true; //use true with cluster
+    public static boolean HEADLESS = false; //use true with cluster
     public static boolean LOCAL = true; // use false with cluster
     public static double numSteps = 1.0*365.0*24.0*60.0; // years the model will run
     public static int numSims = 10; //Number of Simulations
@@ -69,9 +70,11 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     double maxCXCL9 = (2.07e-9)/8;
 
     double PERF_productionRate = 2.04e-9 * (MinToHour * TIMESTEP_AGENT) / N_TIMESTEP_PDE; // 2.04e-9 //dts; PERF production rate
+    static double PERF_basalRate = 2.04e-11 * (MinToHour * TIMESTEP_AGENT) / N_TIMESTEP_PDE; // 2.04e-11 //dts; basal PERF production rate (not by OC)
     static double PERF_decayRate = -0.35 * (MinToHour * TIMESTEP_AGENT) / N_TIMESTEP_PDE; // dts; BE CAREFUL THIS ISN'T TOO BIG OR ELSE CONCENTRATION GOES NEGATIVE
 
     double PERF_DiffCoef = 780.0 * (MinToHour * TIMESTEP_AGENT) / (SPACESTEP * SPACESTEP * N_TIMESTEP_PDE); // dts
+    double Extra_PERFtime = 4320.0 / (MinToHour * TIMESTEP_AGENT); // 4320 min = 720 ts = 3 days
     static double maxPERF = 8.7e-10; // 1.12e-9; //1.78e-9;//1.21e-9; //6.4e-10
 
     //Cytokines
@@ -80,12 +83,21 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     static double TGFB_decayRate = -0.35*(MinToHour*TIMESTEP_AGENT)/N_TIMESTEP_PDE; //dts; BE CAREFUL THIS ISN'T TOO BIG OR ELSE CONCENTRATION GOES NEGATIVE
 
     double TGFB_DiffCoef = 780.0*(MinToHour*TIMESTEP_AGENT)/(SPACESTEP*SPACESTEP*N_TIMESTEP_PDE); //dts
+    double Extra_TGFBtime = 4320.0/(MinToHour*TIMESTEP_AGENT); //4320 min = 720 ts = 3 days
     static double maxTGFB = 8.7e-10; //1.12e-9; //1.78e-9;//1.21e-9; //6.4e-10
 
+    double Ts = TGFB_basalRate/(Math.abs(TGFB_decayRate)*maxTGFB); //Basal TGFB
     double TGFBthresh = (1.05)* TGFB_basalRate/(Math.abs(TGFB_decayRate)* maxTGFB);//was 0.01; now 5% increase from basal
+    double MaxTdiff; //max relative change in TGFB
+    double tmax;//=0;
+    boolean [][] extraTGFB = new boolean[xDim][yDim];
+    double [][] TGFBtimer = new double[xDim][yDim];
 
     //INHIBITORS AND TREATMENT
     double dose = 1.0; //1.0 ;//1.0; //1.0
+    public int Tx_Interval = (int) (30240.0/(MinToHour*TIMESTEP_AGENT)); //(5760.0/(TIMESTEP_AGENT)); //5760 = 4 day; //30240 min = 21 days
+    public int Tx_Duration = (int) (30240.0/(MinToHour*TIMESTEP_AGENT));//(20160.0/(TIMESTEP_AGENT)); //1440 = 1 day; 4320 = 3 days; 525600 = 365 days; 20160 min = 14 days
+    public static int daysPassed = 0;
     //MODEL TESTS
     public double MarrowArea;
     double convert_to_days = (MinToHour*TIMESTEP_AGENT)/(60.0*24.0); //1 ts = 6 min = 1/240 day
@@ -103,6 +115,10 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     public ArrayList<Integer> InitBoneList = new ArrayList<>();
     public ArrayList<simpleBoneCell> AllBoneList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
     public ArrayList<simpleBoneCell> LiningList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
+
+    List<Object> cellSIMindex = new ArrayList<>();
+
+    //public int eOpt;
     FileIO out;
 
     FileIO clones;
@@ -146,9 +162,63 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     //5. RecordOut         //
     /////////////////////////
 
+    // taking a snapshot of the cell
+    public static class CellSnapshot {
+        public final int type;
+        public final boolean bcmaLoss;
+        public int simID;
 
+        public CellSnapshot(int type,
+                            boolean bcmaLoss, int simID) {
+            this.type = type;
+            this.bcmaLoss = bcmaLoss;
+            this.simID = simID;
+        }
+    }
+
+    // --- Add snapshot export helper in simpleBoneGrid (instance method) ---
+    public CellSnapshot exportSnapshot(simpleBoneCell c) {
+        // Capture the fields you care about. Extend as needed.
+        return new CellSnapshot(
+                c.type,
+                c.bcmaLoss,
+                c.simulationID
+        );
+    }
+
+    // --- Add snapshot import helper in simpleBoneGrid (instance method) ---
+    public void importSnapshotToGrid(CellSnapshot s) {
+        // Find a random empty location to place the incoming cell (or use other placement logic)
+        int tries = 0;
+        while (tries < 50) { // try up to 50 random spots
+            int x = rn.Int(xDim);
+            int y = rn.Int(yDim);
+            if (PopAt(x, y) == 0) {
+                simpleBoneCell newCell = NewAgentSQ(x, y);
+                newCell.type = s.type;
+                newCell.bcmaLoss = s.bcmaLoss;
+                newCell.simulationID = s.simID;
+                // copy other fields as needed
+                return;
+            }
+            tries++;
+        }
+        // If not placed after random tries, place it at first empty by scanning
+        for (int xi = 0; xi < xDim; xi++) {
+            for (int yi = 0; yi < yDim; yi++) {
+                if (PopAt(xi, yi) == 0) {
+                    simpleBoneCell newCell = NewAgentSQ(xi, yi);
+                    newCell.type = s.type;
+                    newCell.bcmaLoss = s.bcmaLoss;
+                    newCell.simulationID = s.simID;
+                    return;
+                }
+            }
+        }
+    }
 
     // global, accessible from all threads
+    public static ConcurrentLinkedQueue<CellSnapshot> myelomaTransferQueue = new ConcurrentLinkedQueue<>();
 
     public static void runSimulation(final int simID, final int prow, final String baseFolder, final ArrayList<String> param_list, int[] condition) {
 
@@ -159,7 +229,8 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         // timestamped subfolder per sim (same naming you used)
         String fn = baseFolder; // base folder created in main
         String subfolder = fn + "/Sim" + simID + "_row" + prow + "/";
-
+        File dir = new File(subfolder);
+        dir.mkdirs();
 
         // -------------------------
         // UI / visualization setup
@@ -219,7 +290,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
         // -------------------------
         // main time loop (your original for loop)
-        double exhaustedFraction = 0.8;
+        double exhaustedFraction = 0.25;
         int totalTcell = 250;
         for (int i = 0; i < g.Nts; i++) {
 
@@ -636,30 +707,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
                     TGFB.Add(x, y, TGFB_productionRate / maxTGFB);
 
                 }
-//
-//                if (GetAgent(x, y) != null &&
-//                        (GetAgent(x, y).type == BONE || GetAgent(x, y).type == LINING)) {
-//
-//                    TGFB.Set(x, y, 0.1 * TGFB_DiffCoef);
-//
-//                } else if (x != xDim - 1 &&
-//                        GetAgent(x + 1, y) != null &&
-//                        (GetAgent(x + 1, y).type == BONE || GetAgent(x + 1, y).type == LINING)) {
-//
-//                    TGFB.Set(x, y, 0.1 * TGFB_DiffCoef);
-//                }
-//
-//                if (GetAgent(x, y) != null &&
-//                        (GetAgent(x, y).type == BONE || GetAgent(x, y).type == LINING)) {
-//
-//                    TGFB.Set(x, y, 0.1 * TGFB_DiffCoef);
-//
-//                } else if (y != yDim - 1 &&
-//                        GetAgent(x, y + 1) != null &&
-//                        (GetAgent(x, y + 1).type == BONE || GetAgent(x, y + 1).type == LINING)) {
-//
-//                    TGFB.Set(x, y, 0.1 * TGFB_DiffCoef);
-//                }
+
             }
         }
 
@@ -988,6 +1036,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
 
     public int color;
 
+
     //Lining
     int liningAge = 0; //counter for when lining old enough for remodeling event
     //MM
@@ -1003,7 +1052,8 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
         if (type == MM) {
             this.Dispose();}
     }
-    boolean encounteredMyeloma = false;
+    boolean myeloma_bound = false;
+
     boolean mhcLoss = false;
     double bcmaExpression = 1.0;
     double mhcIExpression = 1.0;
@@ -1361,7 +1411,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
             double pdeath = G.MM_DEATH;
             //int[] Hood = MooreHood(true); // For division and movement
             int options = MapOccupiedHood(MOORE_HOOD);
-            double x = ProbScale(1.5e-4, TIMESTEP_AGENT);
+            double x = ProbScale(5.5e-4, TIMESTEP_AGENT);
             for (int j = 0; j < options; j++) {
                 simpleBoneCell neighbor = G.GetAgent(MOORE_HOOD[j]);
                 if (neighbor != null && (neighbor.type == BONE || neighbor.type == LINING)) {
@@ -1373,7 +1423,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                 }
             }
             double scaleFactor = 0.7 + (0.3 * this.bcmaExpression); // bcma=0 → 0.7, bcma=1 → 1.0
-            pdiv = ProbScale((1.0 / 1440) * scaleFactor, MinToHour);
+            pdiv = ProbScale((1.0 / 2400) * scaleFactor, MinToHour);
             ///////////
             //MM dies//
             ///////////
@@ -1425,6 +1475,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
         }
 
         if (type == naiveTcell) {
+            this.myeloma_bound = false;
             this.lifespan = G.boundedGaussian(30, 1, 30, 34);
 
             // Increment T cell age every 24 hours
@@ -1470,7 +1521,7 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
 
 
         if (type == activeTcell) {
-            encounteredMyeloma = false;
+            this.myeloma_bound = false;
             this.lifespan = G.boundedGaussian(30, 1, 30, 34);
 
             // Increment T cell age every 24 hours
@@ -1523,9 +1574,6 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                         }else{
                             PERF_on = false;
                         }
-                        if (encounteredMyeloma) {
-                            break;
-                        }
                     }
 
                 // Movement logic - only execute if no myeloma cell was encountered
@@ -1537,7 +1585,6 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
         }
 
         if (type == EXHT_CELL) {
-            encounteredMyeloma = false;
             double EXH_RECOG_NOISE = 0.5;
             this.lifespan = G.boundedGaussian(30, 1, 30, 34);
 
@@ -1590,9 +1637,6 @@ class simpleBoneCell extends AgentSQ2Dunstackable<simpleBoneGrid> {
                             else{
                                 PERF_on = false;
                             }
-                        }
-                        if (encounteredMyeloma) {
-                            break;
                         }
                     }
                 }
