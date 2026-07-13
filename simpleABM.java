@@ -28,9 +28,8 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     public static boolean BIWEEKLY = false;
     public static boolean ADAPTIVE = false;
     public static boolean BCMA_TCE = true;
-    public static boolean GRPC5_TCE = false;
-    public static boolean combo_tce = false;
-
+    public static boolean GRPC5_TCE = true;
+    public static boolean combo_tce = true;
     public static boolean TREATMENT_ON = false; //this is to control TGFBi
 
     //public static int initMyeloma = 00;
@@ -38,10 +37,10 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     //CLUSTER
     public static boolean PARAM_SWEEP = false; //use when importing parameters to loop through
     public static boolean runPar = true;
-    public static boolean HEADLESS = false; //use true with cluster
-    public static boolean GIFSAVE = true;
-    public static boolean LOCAL = true; // use false with cluster
-    public static double numSteps = 1.0*365.0*24.0*60.0; // years the model will run
+    public static boolean HEADLESS = true; //use true with cluster
+    public static boolean GIFSAVE = false;
+    public static boolean LOCAL = false; // use false with cluster
+    public static double numSteps = 4.0*365.0*24.0*60.0; // years the model will run
     public static int numSims = 10; //Number of Simulations
     public final static int BONE = RGB256(255,255,250),
             LINING = RGB256(64,106,151),
@@ -111,15 +110,10 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
     public int[] tmoveHood = MooreHood(true);
     public ArrayList<Integer> InitBoneList = new ArrayList<>();
-    public ArrayList<Integer> InitMyelomaList = new ArrayList<>();
-    public ArrayList<Integer> InitTcellList = new ArrayList<>();
-    public ArrayList<Integer> InitTregList = new ArrayList<>();
     public ArrayList<simpleBoneCell> AllBoneList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
     public ArrayList<simpleBoneCell> LiningList = new ArrayList<>(); //This list is used to randomly determine where remodeling event occurs
 
-    List<Object> cellSIMindex = new ArrayList<>();
 
-    double[] TGFBvals = new double[xDim*yDim];
 
     //public int eOpt;
     FileIO out;
@@ -132,10 +126,6 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
     FileIO InitialBone;
 
-    FileIO InitialMyeloma;
-    FileIO InitialTcell;
-
-    FileIO InitialTreg;
 
     FileIO tgfbLocs;
 //    FileIO params;
@@ -150,7 +140,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
     //GRID CONSTRUCTOR//
     ////////////////////
 
-    public simpleBoneGrid(int xDim, int yDim, Rand rn, String Bone_FileName, String myeloma_filename, String tcell_filename, String treg_filename) {
+    public simpleBoneGrid(int xDim, int yDim, Rand rn, String Bone_FileName) {
         super(xDim, yDim, simpleBoneCell.class,true,true);
         this.rn = rn;
 
@@ -159,9 +149,6 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         TGFB = new PDEGrid2D(xDim, yDim,true,true);
         PERF = new PDEGrid2D(xDim, yDim,true,true);
         InitialBone=new FileIO(Bone_FileName, "r");
-        InitialMyeloma = new FileIO(myeloma_filename, "r");
-        InitialTcell = new FileIO(tcell_filename, "r");
-        InitialTreg = new FileIO(treg_filename, "r");
 
     }
 
@@ -177,11 +164,11 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
     public static void runSimulation(final int simID, final int prow, final String baseFolder, final ArrayList<String> param_list) {
 
-        //final int xDim = 160;
-        //final int yDim = 150;
+        final int xDim = 160;
+        final int yDim = 150;
 
-        final int xDim = 320;
-        final int yDim = 300;
+        //final int xDim = 320;
+        //final int yDim = 300;
 
         // timestamped subfolder per sim (same naming you used)
         String fn = baseFolder; // base folder created in main
@@ -224,26 +211,16 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         // Bone file selection and grid creation
         // -------------------------
         String Bone_Filename = null;
-        String myeloma_filename = null;
-        String tcell_filename = null;
-        String treg_filename = null;
         if (LOCAL) {
-            //Bone_Filename = "/Users/80024703/Desktop/code/Bone/BAout_2020May5_Sim14.csv";
-            Bone_Filename = "/Users/80024703/Desktop/bone_coordinates.csv";
-            myeloma_filename = "/Users/80024703/Desktop/mm_coordinates.csv";
-            tcell_filename = "/Users/80024703/Desktop/tcell_coordinates.csv";
-            treg_filename = "/Users/80024703/Desktop/treg_coordinates.csv";
+            Bone_Filename = "/Users/80024703/Desktop/code/Bone/BAout_2020May5_Sim14.csv";
         } else {
-            //Bone_Filename = "Bone/BAout_2020May5_Sim14.csv";
-            Bone_Filename = "Bone/bone_coordinates.csv";
-            myeloma_filename = "Bone/mm_coordinates.csv";
-            tcell_filename = "Bone/tcell_coordinates.csv";
-            treg_filename = "Bone/treg_coordinates.csv";
+            Bone_Filename = "Bone/BAout_2020May5_Sim14.csv";
+
         }
 
         // Create grid and RNG (give reproducible seed if you want deterministic runs)
         Rand rng = new Rand(simID + 1000L * prow); // deterministic seed per sim
-        simpleBoneGrid g = new simpleBoneGrid(xDim, yDim, rng, Bone_Filename, myeloma_filename, tcell_filename, treg_filename);
+        simpleBoneGrid g = new simpleBoneGrid(xDim, yDim, rng, Bone_Filename);
 
         // Set parameters from param_list if param sweep active
         if (PARAM_SWEEP && param_list != null) {
@@ -255,19 +232,15 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
 
         // Initialize model
         g.InitBone();
-        g.InitMyeloma();
-        g.InitTcell();
-        g.InitTreg();
-        int timestepsPerDay = 240;
-        int therapyPeriodWeeks = 1;
+
         // -------------------------
         // main time loop (your original for loop)
         double exhaustedFraction = 0.25;
-        int totalTcell = g.InitTcellList.size();
+        //int totalTcell = g.InitTcellList.size();
+        int totalTcell = 250;
         for (int i = 0; i < g.Nts; i++) {
             int daysPassedCalc = (int) Math.floor(i / (24.0 * 60.0 / (MinToHour * TIMESTEP_AGENT)));
             int weeksPassed = daysPassedCalc / 7;
-            boolean TCE_active_this_week = ((weeksPassed / therapyPeriodWeeks) % 2 == 0);
             // Weekly therapy toggle
             double[] Cell_Counts = g.CellCounts();
             timeStep = i;
@@ -279,17 +252,52 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
                 TCE = false;
             }
 
+//            if (combo_tce) {
+//
+//                // alternate weeks
+//                if (week % 2 == 0) {
+//                    BCMA_TCE = true;      // even weeks
+//                    GRPC5_TCE = false;
+//                } else {
+//                    GRPC5_TCE = true;     // odd weeks
+//                    BCMA_TCE = false;
+//                }
+//
+//            }
+            // 0 = no treatment
+            // 1 = BCMA
+            // 2 = GPRC5D
+
+            int[] schedule = {
+                    1, // week 0  BCMA
+                    2, // week 1  GPRC5D
+//                    0, // week 2  holiday
+//                    1, // week 3  BCMA
+//                    2, // week 4  GPRC5D
+//                    0  // week 5  holiday
+            };
             if (combo_tce) {
 
-                // alternate weeks
-                if (week % 2 == 0) {
-                    BCMA_TCE = true;      // even weeks
-                    GRPC5_TCE = false;
-                } else {
-                    GRPC5_TCE = true;     // odd weeks
-                    BCMA_TCE = false;
-                }
+                week = daysPassedCalc / 7;
+                int cycleWeek = week % schedule.length;
 
+                BCMA_TCE = false;
+                GRPC5_TCE = false;
+
+                switch (schedule[cycleWeek]) {
+
+                    case 1:
+                        BCMA_TCE = true;
+                        break;
+
+                    case 2:
+                        GRPC5_TCE = true;
+                        break;
+
+                    case 0:
+                    default:
+                        break;
+                }
             }
 
             if(ADAPTIVE && (Cell_Counts[2]+Cell_Counts[3]+Cell_Counts[4]+Cell_Counts[10]+Cell_Counts[11]+Cell_Counts[12]) <= (3000)){
@@ -325,7 +333,6 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
                                 c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
                                 c.lifespan = g.boundedGaussian(30, 1, 30, 34);
                             } else if (g.rn.Double() < exhaustedFraction) {
-                                //c.type = extnaiveTcell;
                                 c.type = EXHT_CELL;
                                 c.pd_l1 = g.boundedGaussian(10, 1, 1, 20);
                                 c.lifespan = g.boundedGaussian(30, 1, 30, 34);
@@ -361,13 +368,13 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
                             j++;
                         }
                     }
-                }else if((Cell_Counts[5]+Cell_Counts[6]+Cell_Counts[8]+Cell_Counts[9])<totalTcell){
+                }else if((Cell_Counts[5]+Cell_Counts[6]+Cell_Counts[8]+Cell_Counts[9])<totalTcell && TCE){
                     int InitTcells=0;
                     if ((BIWEEKLY || ADAPTIVE) && TCE){
                         InitTcells = 250;
 
                     }
-                    else if (TCE && !BIWEEKLY || !ADAPTIVE){
+                    else if (TCE && !BIWEEKLY || !ADAPTIVE && TCE){
                         InitTcells = 10;
                     }
                     int j = 0;
@@ -540,6 +547,7 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         return (cell != null && cell.type == LINING);
     }
     public void InitBone() {
+        int initMyeloma = 3000;
 
         //  FOR IRREGULAR BONE
         int xinit, yinit;
@@ -562,70 +570,72 @@ public class simpleBoneGrid extends AgentGrid2D<simpleBoneCell> implements Seria
         }
         init_BA = InitBoneList.size();
         MarrowArea = (xDim * yDim) - init_BA;//(xDimBone*yDimBone); //0.12 Bone, 0.88 Marrow
-    }
-    public void InitMyeloma() {
+        int myelomaCellsToPlace = initMyeloma;
+        int placedMyelomaCells = 0;
+        int boneProximityDistance = 10; // Maximum initial distance from bone
+        double bcmaNegfraction = 0.0;
+        int nextCloneID = 1;
 
-        //  FOR IRREGULAR BONE
-        int xinit, yinit;
-        ArrayList<String> input_data = InitialMyeloma.Read();
-        String[] split_input_data = input_data.get(0).split(",");
-        int nextCloneID =1;
-        //Place bone
-        for (int index = 1; index < split_input_data.length; index++) {
-            if (GetAgent(Integer.parseInt(split_input_data[index]))==null){
-            NewAgentSQ(Integer.parseInt(split_input_data[index])).type = MM;
-            GetAgent(Integer.parseInt(split_input_data[index])).Init();
-            GetAgent(Integer.parseInt(split_input_data[index])).mhcIExpression = 1;
-            GetAgent(Integer.parseInt(split_input_data[index])).bcmaExpression = 1;
-            GetAgent(Integer.parseInt(split_input_data[index])).grpc5dExpression = 1;
-            GetAgent(Integer.parseInt(split_input_data[index])).parentID = Integer.parseInt(split_input_data[index]) * xDim;
-            GetAgent(Integer.parseInt(split_input_data[index])).cloneID = nextCloneID+=1;
-            InitMyelomaList.add(Integer.parseInt(split_input_data[index]));
+
+        int attempts = 0;
+        int maxAttempts = 100000; // safety to prevent infinite loop
+
+        while (placedMyelomaCells < myelomaCellsToPlace && attempts < maxAttempts) {
+
+            int x = rn.Int(xDim);
+            int y = rn.Int(yDim);
+
+            // Skip if occupied
+            if (PopAt(x, y) != 0) {
+                attempts++;
+                continue;
             }
+
+            // Check if near bone
+            boolean isNearBone = false;
+
+            for (int xi = Math.max(0, x - boneProximityDistance);
+                 xi <= Math.min(xDim - 1, x + boneProximityDistance); xi++) {
+
+                for (int yi = Math.max(0, y - boneProximityDistance);
+                     yi <= Math.min(yDim - 1, y + boneProximityDistance); yi++) {
+
+                    if (GetAgent(xi, yi) != null && GetAgent(xi, yi).type == BONE) {
+
+                        double distance = Math.sqrt(
+                                Math.pow(xi - x, 2) +
+                                        Math.pow(yi - y, 2));
+
+                        if (distance <= boneProximityDistance) {
+                            isNearBone = true;
+                            break;
+                        }
+                    }
+                }
+                if (isNearBone) break;
+            }
+
+            if (!isNearBone) {
+                attempts++;
+                continue;
+            }
+
+            // Place myeloma cell
+            NewAgentSQ(x, y).type = MM;
+            GetAgent(x, y).bcmaExpression = 1;
+            GetAgent(x, y).grpc5dExpression = 1;
+            GetAgent(x, y).mhcIExpression = 1;
+
+
+            placedMyelomaCells++;
         }
 
 
-    }
-    public void InitTcell() {
 
-        //  FOR IRREGULAR BONE
-        int xinit, yinit;
-        ArrayList<String> input_data = InitialTcell.Read();
-        String[] split_input_data = input_data.get(0).split(",");
-        int nextCloneID =1;
-        //Place bone
-        for (int index = 1; index < split_input_data.length; index++) {
-            if (GetAgent(Integer.parseInt(split_input_data[index])) != null){
-                GetAgent(Integer.parseInt(split_input_data[index])).Dispose();
-            }
-            NewAgentSQ(Integer.parseInt(split_input_data[index])).type = activeTcell;
-            GetAgent(Integer.parseInt(split_input_data[index])).Init();
-            GetAgent(Integer.parseInt(split_input_data[index])).pd_l1 = boundedGaussian(20, 1, 1, 20);
-            GetAgent(Integer.parseInt(split_input_data[index])).lifespan = boundedGaussian(30, 1, 30, 34);
-            InitTcellList.add(Integer.parseInt(split_input_data[index]));
-        }
 
     }
-    public void InitTreg() {
 
-        //  FOR IRREGULAR BONE
-        int xinit, yinit;
-        ArrayList<String> input_data = InitialTreg.Read();
-        String[] split_input_data = input_data.get(0).split(",");
-        int nextCloneID =1;
-        //Place bone
-        for (int index = 1; index < split_input_data.length; index++) {
-            if (GetAgent(Integer.parseInt(split_input_data[index])) != null){
-                GetAgent(Integer.parseInt(split_input_data[index])).Dispose();
-            }
-            NewAgentSQ(Integer.parseInt(split_input_data[index])).type = supressorTcell;
-            GetAgent(Integer.parseInt(split_input_data[index])).Init();
-            GetAgent(Integer.parseInt(split_input_data[index])).pd_l1 = boundedGaussian(20, 1, 1, 20);
-            GetAgent(Integer.parseInt(split_input_data[index])).lifespan = boundedGaussian(30, 1, 30, 34);
-            //InitTregList.add(Integer.parseInt(split_input_data[index]));
-        }
 
-    }
 
     public void ModelStep(int time, double [] Cell_Counts, int simID) {
 
